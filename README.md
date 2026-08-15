@@ -60,16 +60,20 @@ así que con firma estable se conceden una vez y no en cada compilación.
 
 ### Desde la release
 
-Las releases traen la app ya compilada, firmada con un certificado de
-desarrollo de Apple. **Eso vale para el Mac donde se compiló, no para el
-tuyo**: Gatekeeper la bloqueará la primera vez, porque distribuirla sin aviso
-exige un «Developer ID» de pago y notarización. Para abrirla igualmente:
+La release v1.0 va firmada con un certificado de **desarrollo** de Apple, que
+vale para el Mac donde se compiló pero no está notarizada: en otro ordenador
+Gatekeeper la bloqueará la primera vez. Para abrirla igualmente:
 
 ```sh
 xattr -d com.apple.quarantine "/Applications/Backup SSD.app"
 ```
 
 O clic derecho sobre la app → Abrir → Abrir. Sólo la primera vez.
+
+A partir de la siguiente versión esto sobrará: `macapp/notarize.sh` firma con
+«Developer ID Application», manda la app a notarizar y le grapa el sello, que
+es lo que hace que se abra con doble clic en cualquier Mac. La cabecera del
+script explica lo que hay que tener preparado.
 
 ## Usar
 
@@ -147,6 +151,7 @@ cd macapp
 ./bench.sh 20000     # cuánto tarda, y en qué
 ./check_strings.py   # las traducciones contra el código
 ./build.sh --run     # compilar y abrir
+./notarize.sh 1.1    # firmar con Developer ID, notarizar y grapar
 ```
 
 El motor (`SyncEngine.swift`), la configuración (`Config.swift`) y la lectura
@@ -186,7 +191,6 @@ defaults delete es.backupssd.app AppleLanguages   # ← macOS lo recuerda; hay q
   combinaciones que se aniden entre sí: si un destino cae dentro de otro, la
   carpeta de fuera «retiraría» los archivos de la de dentro por no encontrarlos
   en su propio origen.
-- Notarizar la app para que se abra en otros Macs sin el rodeo del `xattr`.
 - Comprobar el contenido y no sólo tamaño y fecha, para quien quiera pagar esa
   lentitud a cambio de estar seguro del todo.
 
