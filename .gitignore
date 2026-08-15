@@ -9,4 +9,18 @@ macapp/Resources/AppIcon.icns
 # La configuración vive en ~/.config/backup-ssd, nunca aquí
 config.json
 
+# Certificados de firma.
+#
+# El .cer que hay en macapp/certificados/ es sólo la parte pública y no sería
+# ningún drama que se publicara —va dentro de cada app firmada—, pero tampoco
+# pinta nada en el repositorio: se guarda ahí para tenerlo a mano en este Mac.
+#
+# Lo que NUNCA puede entrar aquí es la clave privada: sin ella nadie puede
+# firmar en nombre de uno, y con ella cualquiera puede.
+macapp/certificados/
+*.p12
+*.pem
+*.key
+*.certSigningRequest
+
 .DS_Store
