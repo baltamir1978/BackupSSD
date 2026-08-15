@@ -1,0 +1,10 @@
+/* Backup SSD — cadenas que enseña el sistema, no la app.
+ *
+ * No es Localizable.strings: el diálogo de permisos lo dibuja macOS a partir
+ * del Info.plist, así que su traducción vive aquí. Las claves son las del
+ * Info.plist, no el texto español. check_strings.py ignora este archivo.
+ */
+"NSDesktopFolderUsageDescription" = "Pour copier le Bureau sur le disque de sauvegarde.";
+"NSDocumentsFolderUsageDescription" = "Pour copier les Documents sur le disque de sauvegarde.";
+"NSDownloadsFolderUsageDescription" = "Pour copier les Téléchargements sur le disque de sauvegarde.";
+"NSRemovableVolumesUsageDescription" = "Pour écrire la copie sur le disque externe.";

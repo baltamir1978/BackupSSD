@@ -1,0 +1,12 @@
+# Artefactos de compilación de la app
+macapp/build/
+macapp/tests/build/
+
+# Generado por make_icon.sh a partir del SVG que lleva dentro
+macapp/Resources/AppIcon.icns
+# (AppIcon-preview.png sí se versiona: sale en el README)
+
+# La configuración vive en ~/.config/backup-ssd, nunca aquí
+config.json
+
+.DS_Store

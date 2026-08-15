@@ -1,0 +1,138 @@
+/* Backup SSD — English.
+ *
+ * The key is the Spanish sentence: Spanish is the base language. A key with
+ * no translation here falls back to that Spanish text, not to an identifier,
+ * so a gap shows up as «this bit is still in Spanish» and never as a crash.
+ *
+ * Run ./check_strings.py after touching this file: a key that does not match
+ * the code byte for byte is silently ignored by macOS.
+ */
+
+/* --- Disk state ------------------------------------------------------- */
+"%@ conectado" = "%@ connected";
+"%@ no está conectado" = "%@ is not connected";
+"Sin disco elegido" = "No disk chosen yet";
+"Todavía no hay ningún disco elegido" = "No disk has been chosen yet";
+"Elige el disco en los ajustes" = "Choose the disk in Settings";
+"Se sincronizará al conectarlo" = "It will sync when you plug it in";
+"Se sincroniza solo al conectarlo" = "Syncs by itself when plugged in";
+"El disco elegido" = "The chosen disk";
+"elegido, ahora mismo no conectado" = "chosen, not connected right now";
+"No hay ningún disco externo conectado." = "No external disk is connected.";
+
+/* --- What it is doing -------------------------------------------------- */
+"Comparando…" = "Comparing…";
+"Comparando el Mac con el disco…" = "Comparing the Mac with the disk…";
+"Comparando «%@»…" = "Comparing “%@”…";
+"Copiando…" = "Copying…";
+"No se pudo sincronizar" = "Could not sync";
+"Nunca se ha sincronizado." = "Never synced.";
+"%1$@ de %2$@" = "%1$@ of %2$@";
+"Última: %@" = "Last: %@";
+"Última vez: %1$@ — %2$@" = "Last time: %1$@ — %2$@";
+"sin cambios" = "no changes";
+"Detenido — %@ copiados antes de parar" = "Stopped — %@ copied before stopping";
+
+/* --- Menu and buttons -------------------------------------------------- */
+"Sincronizar ahora" = "Sync now";
+"Abrir el disco" = "Open the disk";
+"Expulsar" = "Eject";
+"Expulsar el disco" = "Eject the disk";
+"Detener" = "Stop";
+"Detener y expulsar" = "Stop and eject";
+"Detener y expulsar el disco" = "Stop and eject the disk";
+"Cancelar" = "Cancel";
+"Ensayo" = "Dry run";
+"Ensayo: %@" = "Dry run: %@";
+"Ventana de Backup SSD…" = "Backup SSD Window…";
+"Ajustes…" = "Settings…";
+"Salir de Backup SSD" = "Quit Backup SSD";
+"Elegir" = "Choose";
+"Olvidar" = "Forget";
+"Añadir" = "Add";
+"Añadir una carpeta" = "Add a folder";
+"Vaciar el historial" = "Clear the history";
+"Mostrar en el Finder" = "Show in Finder";
+
+/* --- Help text under buttons ------------------------------------------- */
+"Cuenta lo que haría, sin escribir nada en el disco." = "Counts what it would do, without writing anything to the disk.";
+"Para en cuanto acabe el archivo que tiene entre manos." = "Stops as soon as it finishes the file it is working on.";
+"Para la copia y suelta el disco para poder desconectarlo." = "Stops copying and releases the disk so you can unplug it.";
+"Suelta el disco para poder desconectarlo sin riesgo." = "Releases the disk so you can safely unplug it.";
+"Quitar la carpeta de la lista. No borra nada del disco." = "Removes the folder from the list. It deletes nothing from the disk.";
+
+/* --- Window ------------------------------------------------------------ */
+"Carpetas" = "Folders";
+"Historial" = "History";
+"Registro" = "Log";
+"no está" = "missing";
+"%1$@ de %2$@ activas" = "%1$@ of %2$@ active";
+
+/* --- Settings ---------------------------------------------------------- */
+"Disco" = "Disk";
+"Copia" = "Copying";
+"Excluir" = "Exclude";
+"General" = "General";
+"Disco de destino" = "Destination disk";
+"El disco se recuerda por su identificador, no por su nombre: dos discos pueden llamarse igual y copiar en el que no es sería un desastre." = "The disk is remembered by its identifier, not by its name: two disks can share a name, and copying to the wrong one would be a disaster.";
+"Carpeta dentro del disco" = "Folder inside the disk";
+"Todo cuelga de esta carpeta, para que el disco pueda tener además otras cosas que Backup SSD no toca nunca." = "Everything hangs off this folder, so the disk can also hold other things that Backup SSD never touches.";
+"Sincronizar en cuanto se conecte el disco" = "Sync as soon as the disk is connected";
+"Sin esto habrá que darle a «Sincronizar ahora» desde el menú cada vez." = "Without this you will have to hit “Sync now” from the menu every time.";
+"Lo que se borra" = "What gets deleted";
+"Guardar lo que se borre del Mac" = "Keep what you delete from the Mac";
+"Guardarlo durante" = "Keep it for";
+"días" = "days";
+"A 0 días no se borra nunca de la papelera del disco." = "At 0 days it is never removed from the disk’s bin.";
+"Pasados %@ se borra de verdad." = "After %@ it is deleted for good.";
+"Lo que borres en el Mac no se borra del disco: se aparta a la carpeta _Retirados, con la fecha del día. Es la red bajo un borrado por error." = "What you delete on the Mac is not deleted from the disk: it is moved aside into the _Retirados folder, under today’s date. That is the net under an accidental deletion.";
+"⚠︎ Sin esto, borrar algo en el Mac lo borra del disco en la siguiente sincronización, y no hay vuelta atrás." = "⚠︎ Without this, deleting something on the Mac deletes it from the disk on the next sync, with no way back.";
+"Saltarse los archivos de iCloud que no estén descargados" = "Skip iCloud files that are not downloaded";
+"Copiarlos obligaría a bajarlos primero, que es justo lo que nadie espera al enchufar un disco." = "Copying them would mean downloading them first, which is exactly what nobody expects when plugging in a disk.";
+"Nombre a excluir, p. ej. *.log" = "Name to exclude, e.g. *.log";
+"Se compara con el nombre del archivo o de la carpeta, no con la ruta entera. Vale un « * » al principio o al final." = "It is matched against the file or folder name, not the whole path. A “*” at the start or the end is allowed.";
+"Abrir Backup SSD al iniciar sesión" = "Open Backup SSD at login";
+"Si no está abierta no puede enterarse de que has enchufado el disco." = "If it is not running it cannot notice that you plugged the disk in.";
+"Apariencia" = "Appearance";
+"Como el sistema" = "Match the system";
+"Claro" = "Light";
+"Oscuro" = "Dark";
+"Configuración" = "Configuration";
+"Todo lo de esta ventana vive en ~/.config/backup-ssd/config.json, un archivo de texto que puedes leer, copiar a otro Mac o corregir a mano." = "Everything in this window lives in ~/.config/backup-ssd/config.json, a text file you can read, copy to another Mac or fix by hand.";
+
+/* --- Things that went wrong -------------------------------------------- */
+"No hay ningún disco elegido todavía." = "No disk has been chosen yet.";
+"No hay ninguna carpeta que copiar." = "There is no folder to copy.";
+"«%1$@»: la carpeta %2$@ ya no existe." = "“%1$@”: the folder %2$@ no longer exists.";
+"«%1$@»: %2$@ no es una carpeta." = "“%1$@”: %2$@ is not a folder.";
+"«%@» no vale como nombre de carpeta en el disco." = "“%@” is not a usable folder name on the disk.";
+"Hay dos carpetas que quieren llamarse «%@» en el disco." = "Two folders want to be called “%@” on the disk.";
+"El disco no está montado o la carpeta %@ no existe." = "The disk is not mounted, or the folder %@ does not exist.";
+"Ese no es el disco de siempre: se esperaba %1$@ y hay %2$@. No se ha tocado nada." = "That is not the usual disk: expected %1$@ and found %2$@. Nothing has been touched.";
+"No cabe: hacen falta %1$@ y quedan %2$@ libres." = "It does not fit: %1$@ needed, %2$@ free.";
+"El disco se ha desconectado a mitad de la copia." = "The disk was disconnected in the middle of the copy.";
+"Detenido a mitad de un archivo." = "Stopped in the middle of a file.";
+"El destino %1$@ está dentro del origen %2$@: sería una copia sin fin." = "The destination %1$@ is inside the source %2$@: that would be an endless copy.";
+"El origen %1$@ está dentro del destino %2$@." = "The source %1$@ is inside the destination %2$@.";
+"No se pudo leer %1$@: %2$@" = "Could not read %1$@: %2$@";
+"No se pudo crear %1$@: %2$@" = "Could not create %1$@: %2$@";
+"No se pudo abrir %@." = "Could not open %@.";
+"No se pudo escribir %@." = "Could not write %@.";
+"No se pudo expulsar %1$@: %2$@" = "Could not eject %1$@: %2$@";
+"No se pudo purgar _Retirados/%1$@: %2$@" = "Could not purge _Retirados/%1$@: %2$@";
+"Al retirar %1$@: %2$@" = "While setting aside %1$@: %2$@";
+"Enlace %1$@: %2$@" = "Link %1$@: %2$@";
+
+/* --- Log --------------------------------------------------------------- */
+"Parando para expulsar el disco…" = "Stopping so the disk can be ejected…";
+"%@ expulsado. Ya se puede desconectar." = "%@ ejected. You can unplug it now.";
+"%@ — está en iCloud sin descargar" = "%@ — it is in iCloud and not downloaded";
+"· saltado: %@" = "· skipped: %@";
+"· %@ estaba cambiando mientras se copiaba; se copiará otra vez la próxima vez" = "· %@ was being changed while it was copied; it will be copied again next time";
+"· %@ desapareció antes de poder copiarlo" = "· %@ vanished before it could be copied";
+
+/* --- Window titles ------------------------------------------------------ */
+/* The app name stays as it is in every language; only the Settings window
+   title is translated. */
+"Backup SSD" = "Backup SSD";
+"Ajustes de Backup SSD" = "Backup SSD Settings";
