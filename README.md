@@ -60,20 +60,16 @@ así que con firma estable se conceden una vez y no en cada compilación.
 
 ### Desde la release
 
-La release v1.0 va firmada con un certificado de **desarrollo** de Apple, que
-vale para el Mac donde se compiló pero no está notarizada: en otro ordenador
-Gatekeeper la bloqueará la primera vez. Para abrirla igualmente:
+Desde la v1.1 la app va firmada con «Developer ID Application», **notarizada
+por Apple** y con el sello grapado: se descomprime, se arrastra a
+`/Applications` y se abre con doble clic en cualquier Mac. Sin avisos de
+Gatekeeper y sin rodeos con `xattr`.
 
-```sh
-xattr -d com.apple.quarantine "/Applications/Backup SSD.app"
-```
+(La v1.0 iba con un certificado de desarrollo, que sólo vale para el Mac donde
+se compiló. Si la tienes instalada, sustitúyela por esta.)
 
-O clic derecho sobre la app → Abrir → Abrir. Sólo la primera vez.
-
-A partir de la siguiente versión esto sobrará: `macapp/notarize.sh` firma con
-«Developer ID Application», manda la app a notarizar y le grapa el sello, que
-es lo que hace que se abra con doble clic en cualquier Mac. La cabecera del
-script explica lo que hay que tener preparado.
+De hacer todo eso se encarga `macapp/notarize.sh`; la cabecera del script
+explica lo que hay que tener preparado.
 
 ## Usar
 
