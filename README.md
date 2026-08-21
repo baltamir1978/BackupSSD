@@ -23,6 +23,22 @@ volumen montado es el que dice ser.
 días (90 por omisión; a 0, nunca). Es la red debajo de un borrado por error, y
 es lo que separa esto de un espejo a secas.
 
+**Hay carpetas que se sincronizan y carpetas que se vacían.** Lo normal es
+sincronizar: el disco acaba igual que el Mac. Pero una carpeta se puede poner
+en modo **mover**, y entonces lo que hay dentro se lleva al disco —*añadiéndose*
+a lo que ya hubiera, sin retirar nada nunca— y se borra del Mac. Sirve para el
+cajón donde uno va dejando lo que ya no usa pero no quiere perder. Puede ser
+una carpeta dentro de otra que se sincroniza: `Documentos` sincronizada y
+`Documentos/otros` en modo mover convive sin problema, y lo movido aterriza en
+`<raíz>/Documentos/otros`, en su sitio natural dentro del disco.
+
+**Antes de borrar del Mac se relee del disco y se compara byte a byte.** Es la
+única operación de todo el programa que destruye algo en el ordenador, así que
+no se fía de la fecha y el tamaño como hace el resto: se compara el contenido
+entero, y si no coincide se deshace la copia, el archivo se queda donde estaba
+y se dice en el registro. Se paga una relectura de lo que se mueve, no del
+backup entero, y sólo la primera vez que cada archivo pasa por ahí.
+
 **Planifica antes de tocar nada.** Primero mira los dos lados, decide qué hay
 que hacer y calcula cuánto espacio hace falta. Sólo entonces escribe. Así se
 sabe si cabe antes de empezar, y la barra de progreso significa algo.
@@ -76,10 +92,13 @@ explica lo que hay que tener preparado.
 1. Pulsa el icono de la barra de menús → **Ajustes…**
 2. Pestaña **Disco**: enchufa el SSD y dale a *Elegir*.
 3. Abre la ventana y arrastra las carpetas que quieras copiar.
-4. Dale a **Ensayo** antes que a *Sincronizar ahora*: cuenta lo que haría sin
+4. En la lista, cada carpeta lleva a su derecha qué hacer con ella:
+   *Sincronizar* o *Mover*. Debajo del nombre pone dónde acabará dentro del
+   disco.
+5. Dale a **Ensayo** antes que a *Sincronizar ahora*: cuenta lo que haría sin
    escribir nada. Con un disco de verdad de por medio, esa primera pasada en
-   seco merece la pena.
-5. En **General**, activa *Abrir Backup SSD al iniciar sesión*. Sin eso no
+   seco merece la pena, y con una carpeta en modo mover, más.
+6. En **General**, activa *Abrir Backup SSD al iniciar sesión*. Sin eso no
    puede enterarse de que has enchufado el disco.
 
 La primera vez macOS pedirá permiso para leer el Escritorio, los Documentos y
@@ -96,7 +115,10 @@ mal, y copiar a otro Mac sin más ceremonia.
   "volumeUUID": "…",           // el disco, por identificador
   "volumeName": "SSD-T7",      // sólo para enseñarlo en la interfaz
   "rootFolder": "Backup-SSD",  // todo cuelga de aquí dentro del disco
-  "folders": [ { "source": "/Users/tú/Proyectos", "name": "Proyectos", "enabled": true } ],
+  "folders": [
+    { "source": "/Users/tú/Proyectos", "name": "Proyectos", "enabled": true, "mode": "sync" },
+    { "source": "/Users/tú/Documents/otros", "name": "otros", "enabled": true, "mode": "move" }
+  ],
   "autoSyncOnMount": true,
   "keepRemoved": true,
   "removedRetentionDays": 90,
@@ -104,6 +126,23 @@ mal, y copiar a otro Mac sin más ceremonia.
   "skipUndownloadediCloud": true
 }
 ```
+
+`mode` es `sync` (por omisión) o `move`. En `sync` el disco acaba igual que el
+Mac. En `move` lo de dentro se lleva al disco y se borra del Mac, y ahí no se
+retira nada jamás: lo que ya esté archivado se queda. Si al mover ya hay un
+archivo con ese nombre en el disco, se mira el contenido: si es el mismo no se
+duplica —basta con quitarlo del Mac—, y si es otro entra al lado como
+`informe-2.pdf` sin tocar el que estaba. Las carpetas del Mac no se borran
+nunca: el esqueleto se queda vacío, listo para volver a llenarse.
+
+`name` sólo manda cuando la carpeta no cuelga de otra configurada. Si cuelga,
+el destino sale de la de fuera y ocupa su sitio natural dentro de ella, que es
+lo que hace imposible elegir dos destinos que se aniden mal: la jerarquía del
+disco es la del Mac porque se calcula de ella. Y una carpeta configurada se
+salta siempre en el recorrido de la que la contiene, esté activada o no —
+desactivarla quiere decir «no la toques», nunca «trágatela desde fuera», que es
+lo que haría que `Documentos` se llevara a `_Retirados` todo lo que se movió a
+`Documentos/otros`.
 
 Las exclusiones se comparan con el **nombre** del archivo o de la carpeta, no
 con la ruta entera, y admiten un `*` al principio o al final.
@@ -143,7 +182,7 @@ la que más se ha ganado. De dónde salió, por orden:
 
 ```sh
 cd macapp
-./test.sh            # 90 comprobaciones sobre carpetas temporales
+./test.sh            # 139 comprobaciones sobre carpetas temporales
 ./bench.sh 20000     # cuánto tarda, y en qué
 ./check_strings.py   # las traducciones contra el código
 ./build.sh --run     # compilar y abrir
@@ -158,8 +197,8 @@ sobre carpetas temporales; no hace falta enchufar ningún disco.
 
 | Archivo | Qué es |
 |---|---|
-| `Sources/SyncEngine.swift` | El motor: comparar, planificar, copiar, retirar. |
-| `Sources/Config.swift` | Qué se copia y con qué reglas. |
+| `Sources/SyncEngine.swift` | El motor: comparar, planificar, copiar, mover, retirar. |
+| `Sources/Config.swift` | Qué se copia, a dónde va y con qué reglas. |
 | `Sources/Volumes.swift` | Los discos montados, vistos por UUID. |
 | `Sources/VolumeWatcher.swift` | Enterarse de que han enchufado el disco. |
 | `Sources/AppState.swift` | Decide *cuándo* se sincroniza. |
@@ -181,12 +220,11 @@ defaults delete es.backupssd.app AppleLanguages   # ← macOS lo recuerda; hay q
 
 ## Todavía no
 
-- **Un destino distinto por carpeta.** Hoy cada carpeta va a
-  `<raíz>/<nombre>`, y el nombre es un solo componente. La idea es poder decir
-  a qué subcarpeta del disco va cada origen, con la condición de no permitir
-  combinaciones que se aniden entre sí: si un destino cae dentro de otro, la
-  carpeta de fuera «retiraría» los archivos de la de dentro por no encontrarlos
-  en su propio origen.
+- **Elegir a mano el destino de cada carpeta.** Hoy sale solo: `<raíz>/<nombre>`
+  si la carpeta es independiente, y el sitio natural dentro de la de fuera si
+  cuelga de otra configurada. Eso cubre el caso que hacía falta y evita de raíz
+  los anidamientos que se pisan, pero no permite decir «esta va a
+  `<raíz>/Archivo/2024`» sin que exista esa jerarquía en el Mac.
 - Comprobar el contenido y no sólo tamaño y fecha, para quien quiera pagar esa
   lentitud a cambio de estar seguro del todo.
 

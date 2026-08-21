@@ -107,7 +107,8 @@
 "«%1$@»: la carpeta %2$@ ya no existe." = "« %1$@ » : le dossier %2$@ n’existe plus.";
 "«%1$@»: %2$@ no es una carpeta." = "« %1$@ » : %2$@ n’est pas un dossier.";
 "«%@» no vale como nombre de carpeta en el disco." = "« %@ » ne convient pas comme nom de dossier sur le disque.";
-"Hay dos carpetas que quieren llamarse «%@» en el disco." = "Deux dossiers veulent s’appeler « %@ » sur le disque.";
+"«%1$@» y «%2$@» quieren el mismo sitio en el disco." = "« %1$@ » et « %2$@ » veulent la même place sur le disque.";
+"El destino de «%1$@» cae dentro del de «%2$@» sin estar dentro de ella en el Mac." = "La destination de « %1$@ » tombe dans celle de « %2$@ » sans être à l’intérieur sur le Mac.";
 "El disco no está montado o la carpeta %@ no existe." = "Le disque n’est pas monté, ou le dossier %@ n’existe pas.";
 "Ese no es el disco de siempre: se esperaba %1$@ y hay %2$@. No se ha tocado nada." = "Ce n’est pas le disque habituel : %1$@ était attendu et c’est %2$@. Rien n’a été touché.";
 "No cabe: hacen falta %1$@ y quedan %2$@ libres." = "Ça ne tient pas : il faut %1$@ et il reste %2$@ de libre.";
@@ -137,3 +138,15 @@
    titre de la fenêtre des réglages est traduit. */
 "Backup SSD" = "Backup SSD";
 "Ajustes de Backup SSD" = "Réglages de Backup SSD";
+
+/* --- Mode déplacer ------------------------------------------------------ */
+"Sincronizar" = "Synchroniser";
+"Mover" = "Déplacer";
+"El disco queda igual que el Mac." = "Le disque devient identique au Mac.";
+"Se lleva al disco y se borra del Mac." = "Emporté sur le disque puis supprimé du Mac.";
+"En el disco: %@" = "Sur le disque : %@";
+"Qué hacer con «%@»" = "Que faire de « %@ »";
+"%@ se vacían al disco: lo que hay dentro se copia y se borra del Mac." = "%@ se vident sur le disque : ce qu’elles contiennent est copié puis supprimé du Mac.";
+"%1$@ → %2$@" = "%1$@ → %2$@";
+"%@ no se pudo comprobar después de copiarlo; sigue en el Mac" = "%@ n’a pas pu être vérifié après la copie ; il reste sur le Mac";
+"· ya había otro con ese nombre en el disco: %@" = "· il y avait déjà un autre fichier de ce nom sur le disque : %@";

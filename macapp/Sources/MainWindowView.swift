@@ -128,6 +128,15 @@ struct MainWindowView: View {
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
+                                // A dónde va dentro del disco. Con las carpetas
+                                // anidadas ya no se puede adivinar mirando el
+                                // nombre, y en modo mover conviene verlo bien
+                                // claro antes de que se vacíe nada.
+                                Text(L("En el disco: %@", destinoDe(f)))
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
                             }
                             Spacer()
                             if !FileManager.default.fileExists(atPath: f.source) {
@@ -136,6 +145,17 @@ struct MainWindowView: View {
                                     .foregroundStyle(.orange)
                                     .labelStyle(.titleAndIcon)
                             }
+                            Picker("", selection: $f.mode) {
+                                ForEach(FolderMode.allCases, id: \.self) { m in
+                                    Text(m.label).tag(m)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .controlSize(.small)
+                            .fixedSize()
+                            .accessibilityLabel(L("Qué hacer con «%@»", f.name))
+                            .help(f.mode.explanation)
                         }
                         .opacity(f.enabled ? 1 : 0.45)
                         .padding(.vertical, 2)
@@ -146,19 +166,36 @@ struct MainWindowView: View {
             }
 
             Divider()
-            HStack(spacing: 8) {
-                Button { anadir() } label: { Image(systemName: "plus") }
-                    .help("Añadir una carpeta")
-                    .accessibilityLabel("Añadir una carpeta")
-                Button { state.removeFolders(seleccion); seleccion = [] } label: { Image(systemName: "minus") }
-                    .disabled(seleccion.isEmpty)
-                    .help("Quitar la carpeta de la lista. No borra nada del disco.")
-                    .accessibilityLabel("Quitar la carpeta de la lista. No borra nada del disco.")
-                Spacer()
-                Text(resumenDeCarpetas).font(.caption).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Button { anadir() } label: { Image(systemName: "plus") }
+                        .help("Añadir una carpeta")
+                        .accessibilityLabel("Añadir una carpeta")
+                    Button { state.removeFolders(seleccion); seleccion = [] } label: { Image(systemName: "minus") }
+                        .disabled(seleccion.isEmpty)
+                        .help("Quitar la carpeta de la lista. No borra nada del disco.")
+                        .accessibilityLabel("Quitar la carpeta de la lista. No borra nada del disco.")
+                    Spacer()
+                    Text(resumenDeCarpetas).font(.caption).foregroundStyle(.secondary)
+                }
+                // El modo mover es lo único de este programa que borra algo del
+                // Mac. Se dice aquí, siempre a la vista mientras esté activo, y
+                // no sólo en la ayudita del menú que hay que ir a buscar.
+                if seVacian > 0 {
+                    Label(L("%@ se vacían al disco: lo que hay dentro se copia y se borra del Mac.",
+                            plural("%ld carpetas", seVacian)),
+                          systemImage: "exclamationmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
             }
             .padding(8)
         }
+    }
+
+    /// Cuántas carpetas activas se llevan su contenido al disco.
+    private var seVacian: Int {
+        state.config.folders.filter { $0.enabled && $0.mode == .move }.count
     }
 
     private var resumenDeCarpetas: String {
@@ -253,6 +290,15 @@ struct MainWindowView: View {
     private func acortar(_ ruta: String) -> String {
         let casa = NSHomeDirectory()
         return ruta.hasPrefix(casa) ? "~" + ruta.dropFirst(casa.count) : ruta
+    }
+
+    /// Dónde acaba esta carpeta dentro del disco, contando desde la raíz del
+    /// backup. Se calcula igual que en el motor, pasando por la configuración,
+    /// para que lo que se enseña aquí no pueda separarse de lo que se hace.
+    private func destinoDe(_ f: SyncFolder) -> String {
+        let raiz = state.config.rootFolder.trimmingCharacters(in: .whitespaces)
+        let bajo = URL(fileURLWithPath: "/" + (raiz.isEmpty ? "Backup-SSD" : raiz))
+        return String(state.config.destination(of: f, under: bajo).path.dropFirst())
     }
 
     private func anadir() {

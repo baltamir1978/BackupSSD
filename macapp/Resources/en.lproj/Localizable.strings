@@ -106,7 +106,8 @@
 "«%1$@»: la carpeta %2$@ ya no existe." = "“%1$@”: the folder %2$@ no longer exists.";
 "«%1$@»: %2$@ no es una carpeta." = "“%1$@”: %2$@ is not a folder.";
 "«%@» no vale como nombre de carpeta en el disco." = "“%@” is not a usable folder name on the disk.";
-"Hay dos carpetas que quieren llamarse «%@» en el disco." = "Two folders want to be called “%@” on the disk.";
+"«%1$@» y «%2$@» quieren el mismo sitio en el disco." = "“%1$@” and “%2$@” want the same place on the disk.";
+"El destino de «%1$@» cae dentro del de «%2$@» sin estar dentro de ella en el Mac." = "The destination of “%1$@” falls inside that of “%2$@” without being inside it on the Mac.";
 "El disco no está montado o la carpeta %@ no existe." = "The disk is not mounted, or the folder %@ does not exist.";
 "Ese no es el disco de siempre: se esperaba %1$@ y hay %2$@. No se ha tocado nada." = "That is not the usual disk: expected %1$@ and found %2$@. Nothing has been touched.";
 "No cabe: hacen falta %1$@ y quedan %2$@ libres." = "It does not fit: %1$@ needed, %2$@ free.";
@@ -136,3 +137,15 @@
    title is translated. */
 "Backup SSD" = "Backup SSD";
 "Ajustes de Backup SSD" = "Backup SSD Settings";
+
+/* --- Move mode ---------------------------------------------------------- */
+"Sincronizar" = "Sync";
+"Mover" = "Move";
+"El disco queda igual que el Mac." = "The disk ends up the same as the Mac.";
+"Se lleva al disco y se borra del Mac." = "Taken to the disk and deleted from the Mac.";
+"En el disco: %@" = "On the disk: %@";
+"Qué hacer con «%@»" = "What to do with “%@”";
+"%@ se vacían al disco: lo que hay dentro se copia y se borra del Mac." = "%@ are emptied onto the disk: what is inside is copied and then deleted from the Mac.";
+"%1$@ → %2$@" = "%1$@ → %2$@";
+"%@ no se pudo comprobar después de copiarlo; sigue en el Mac" = "%@ could not be checked after copying; it is still on the Mac";
+"· ya había otro con ese nombre en el disco: %@" = "· there was already another one by that name on the disk: %@";

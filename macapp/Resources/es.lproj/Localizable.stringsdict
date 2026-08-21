@@ -98,6 +98,22 @@
 			<string>%ld estaban en uso</string>
 		</dict>
 	</dict>
+	<key>%ld movidos</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>ld</string>
+			<key>one</key>
+			<string>%ld movido</string>
+			<key>other</key>
+			<string>%ld movidos</string>
+		</dict>
+	</dict>
 	<key>%ld nuevos</key>
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>
@@ -128,6 +144,22 @@
 			<string>%ld retirado</string>
 			<key>other</key>
 			<string>%ld retirados</string>
+		</dict>
+	</dict>
+	<key>%ld sin mover</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>ld</string>
+			<key>one</key>
+			<string>%ld sin mover</string>
+			<key>other</key>
+			<string>%ld sin mover</string>
 		</dict>
 	</dict>
 </dict>

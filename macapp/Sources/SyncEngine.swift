@@ -18,6 +18,15 @@ struct SyncReport {
     var updated = 0           // ya estaban, pero habían cambiado
     var retired = 0           // ya no están en el Mac
     var unchanged = 0
+    /// Se llevaron al disco y se borraron del Mac (carpetas en modo mover).
+    var moved = 0
+    /// Se copiaron, pero el original **sigue en el Mac** porque lo que llegó
+    /// al disco no coincidía con lo que salió. Nunca es un borrado a ciegas:
+    /// si la comprobación falla, el archivo se queda donde estaba.
+    var unverified: [String] = []
+    /// Ya había uno con ese nombre en el disco, con otro contenido, y el que
+    /// llegaba entró al lado como «-2».
+    var renamed: [String] = []
     var skipped: [String] = []   // iCloud sin descargar, y demás
     var errors: [String] = []
     /// Estaban siendo modificados mientras se copiaban. La copia que ha
@@ -31,14 +40,15 @@ struct SyncReport {
     var duration: TimeInterval = 0
     var cancelled = false
 
-    var touched: Int { copied + updated + retired }
+    var touched: Int { copied + updated + retired + moved }
 
     /// Resumen de una línea para el registro y para la barra de menús.
     var summary: String {
-        if cancelled { return L("Detenido — %@ copiados antes de parar", plural("%ld archivos", copied + updated)) }
+        if cancelled { return L("Detenido — %@ copiados antes de parar", plural("%ld archivos", copied + updated + moved)) }
         var partes: [String] = []
         if copied > 0  { partes.append(plural("%ld nuevos", copied)) }
         if updated > 0 { partes.append(plural("%ld actualizados", updated)) }
+        if moved > 0   { partes.append(plural("%ld movidos", moved)) }
         if retired > 0 { partes.append(plural("%ld retirados", retired)) }
         if partes.isEmpty { partes.append(L("sin cambios")) }
         if !errors.isEmpty { partes.append(plural("%ld con error", errors.count)) }
@@ -94,6 +104,114 @@ private enum Action {
     case makeDir(rel: String)
     case link(rel: String)              // enlace simbólico: se recrea, no se sigue
     case retire(rel: String, isDir: Bool)
+    /// Llevar al disco y borrar del Mac. Sólo en carpetas en modo mover, y
+    /// sólo después de comprobar que lo que llegó al disco es lo que salió.
+    case move(rel: String, size: Int64, mtime: Date, isSymlink: Bool)
+}
+
+// MARK: - Las cuentas de un movimiento
+
+/// Lo que los hilos que mueven archivos se van diciendo entre ellos.
+///
+/// Va en una clase con su propio cerrojo, y no en variables sueltas capturadas
+/// por el closure como en las copias, porque aquí no sólo se suman cosas: se
+/// **reparten nombres de archivo**. Dos hilos que eligieran el mismo «-2» a la
+/// vez harían que el segundo escribiera encima del primero, y del primero ya
+/// no queda copia en el Mac. Con el cerrojo pegado a los datos no hay forma de
+/// tocar unos sin el otro.
+private final class MoveTally: @unchecked Sendable {
+    private let lock = NSLock()
+
+    private(set) var hechos = 0
+    private(set) var errores: [String] = []
+    private(set) var desaparecidos: [String] = []
+    private(set) var sinVerificar: [String] = []
+    private(set) var renombrados: [String] = []
+    private(set) var movidos = 0
+    private(set) var bytes: Int64 = 0
+    private(set) var desconectado = false
+
+    /// Nombres del disco que algún hilo ya ha pedido para sí, estén escritos
+    /// todavía o no.
+    private var ocupados: Set<String> = []
+
+    init(hechos: Int) { self.hechos = hechos }
+
+    func get<T>(_ campo: KeyPath<MoveTally, T>) -> T {
+        lock.lock(); defer { lock.unlock() }
+        return self[keyPath: campo]
+    }
+
+    func marcarDesconectado() {
+        lock.lock(); desconectado = true; lock.unlock()
+    }
+
+    // MARK: Repartir nombres
+
+    /// Con qué nombre entra este archivo, y si donde iba había ya algo.
+    ///
+    /// El `existe` mira el disco desde dentro del cerrojo. Es una llamada a
+    /// stat, y tiene que ser ahí: comprobar fuera y reservar después deja una
+    /// rendija por la que dos hilos ven libre el mismo nombre.
+    func reservar(_ preferido: URL, existe: (URL) -> Bool) -> (url: URL, ocupado: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        if !ocupados.contains(preferido.path) {
+            ocupados.insert(preferido.path)
+            return (preferido, existe(preferido))
+        }
+        return (buscarLibre(preferido, existe: existe), false)
+    }
+
+    /// Otro nombre, para cuando el preferido lo ocupa un archivo que no es el
+    /// mismo que se está moviendo.
+    func reservarLibre(_ preferido: URL, existe: (URL) -> Bool) -> URL {
+        lock.lock(); defer { lock.unlock() }
+        return buscarLibre(preferido, existe: existe)
+    }
+
+    /// Con el cerrojo ya cogido.
+    private func buscarLibre(_ preferido: URL, existe: (URL) -> Bool) -> URL {
+        let dir = preferido.deletingLastPathComponent()
+        let ext = preferido.pathExtension
+        let base = preferido.deletingPathExtension().lastPathComponent
+        var n = 2
+        while true {
+            let nombre = ext.isEmpty ? "\(base)-\(n)" : "\(base)-\(n).\(ext)"
+            let candidato = dir.appendingPathComponent(nombre)
+            if !ocupados.contains(candidato.path), !existe(candidato) {
+                ocupados.insert(candidato.path)
+                return candidato
+            }
+            n += 1
+        }
+    }
+
+    // MARK: Apuntar
+
+    /// Uno menos que hacer, y nada que contar: se paró a mitad.
+    func apuntar() {
+        lock.lock(); hechos += 1; lock.unlock()
+    }
+
+    func apuntar(error: String) {
+        lock.lock(); hechos += 1; errores.append(error); lock.unlock()
+    }
+
+    func apuntar(desaparecido: String) {
+        lock.lock(); hechos += 1; desaparecidos.append(desaparecido); lock.unlock()
+    }
+
+    func apuntar(sinVerificar cual: String) {
+        lock.lock(); hechos += 1; sinVerificar.append(cual); lock.unlock()
+    }
+
+    func apuntar(movido escritos: Int64, renombradoA: String?, etiqueta: String) {
+        lock.lock(); defer { lock.unlock() }
+        hechos += 1
+        movidos += 1
+        bytes += escritos
+        if let r = renombradoA { renombrados.append(L("%1$@ → %2$@", etiqueta, r)) }
+    }
 }
 
 // MARK: - Motor
@@ -157,7 +275,7 @@ final class SyncEngine: @unchecked Sendable {
 
         for folder in folders {
             if isCancelled { report.cancelled = true; return report }
-            let dest = folder.destination(under: root)
+            let dest = cfg.destination(of: folder, under: root)
             try assertNotNested(source: folder.source, destination: dest)
 
             onProgress?(0, 0, L("Comparando «%@»…", folder.name))
@@ -165,28 +283,50 @@ final class SyncEngine: @unchecked Sendable {
             // Preguntar por iCloud es carísimo (ver `scan`), así que se decide
             // una sola vez por carpeta en lugar de una vez por archivo.
             let mirarNube = cfg.skipUndownloadediCloud && isInICloud(origen)
-            let hayDestino = fm.fileExists(atPath: dest.path)
+            // Las carpetas configuradas que cuelgan de esta se saltan a los dos
+            // lados: cada una es dueña de su subárbol y se trata con sus
+            // propias reglas. Ver `Config.nestedRelativePaths(of:)`.
+            let saltar = cfg.nestedRelativePaths(of: folder)
 
-            // Los dos lados a la vez: el Mac y el disco externo son dos
-            // aparatos distintos, y mientras uno contesta el otro está parado.
-            // Es la mitad del tiempo de la pasada en la que no cambia nada,
-            // que es la que se hace casi siempre.
-            var lados: [Int: ScanResult] = [:]
-            let cerrojo = NSLock()
-            DispatchQueue.concurrentPerform(iterations: hayDestino ? 2 : 1) { i in
-                let r = i == 0
-                    ? self.scan(origen, matcher: matcher, cloudKeys: mirarNube)
-                    : self.scan(dest, matcher: matcher, cloudKeys: false)
-                cerrojo.lock(); lados[i] = r; cerrojo.unlock()
+            let actions: [Action]
+            if folder.mode == .move {
+                // Aquí no se mira el disco. En modo mover se lleva todo lo que
+                // haya en el Mac y lo que ya esté en el disco se queda como
+                // está: no hay nada que comparar y nada que retirar. Las
+                // coincidencias de nombre se resuelven al escribir, que es
+                // cuando se sabe de verdad lo que hay al otro lado.
+                let src = scan(origen, matcher: matcher, cloudKeys: mirarNube, skip: saltar)
+                report.errors += src.errors
+                report.skipped += src.skipped
+                actions = makeMovePlan(source: src.entries)
+            } else {
+                let hayDestino = fm.fileExists(atPath: dest.path)
+
+                // Los dos lados a la vez: el Mac y el disco externo son dos
+                // aparatos distintos, y mientras uno contesta el otro está
+                // parado. Es la mitad del tiempo de la pasada en la que no
+                // cambia nada, que es la que se hace casi siempre.
+                var lados: [Int: ScanResult] = [:]
+                let cerrojo = NSLock()
+                DispatchQueue.concurrentPerform(iterations: hayDestino ? 2 : 1) { i in
+                    let r = i == 0
+                        ? self.scan(origen, matcher: matcher, cloudKeys: mirarNube, skip: saltar)
+                        : self.scan(dest, matcher: matcher, cloudKeys: false, skip: saltar)
+                    cerrojo.lock(); lados[i] = r; cerrojo.unlock()
+                }
+                let src = lados[0] ?? ScanResult()
+                let dst = lados[1] ?? ScanResult()
+                report.errors += src.errors + dst.errors
+                report.skipped += src.skipped
+
+                actions = makePlan(source: src.entries, destination: dst.entries, report: &report)
             }
-            let src = lados[0] ?? ScanResult()
-            let dst = lados[1] ?? ScanResult()
-            report.errors += src.errors + dst.errors
-            report.skipped += src.skipped
 
-            let actions = makePlan(source: src.entries, destination: dst.entries, report: &report)
             for a in actions {
-                if case .copy(_, let size, _, _) = a { bytesNeeded += size }
+                switch a {
+                case .copy(_, let size, _, _), .move(_, let size, _, _): bytesNeeded += size
+                case .makeDir, .link, .retire: break
+                }
             }
             totalActions += actions.count
             planes.append((folder, actions))
@@ -209,6 +349,7 @@ final class SyncEngine: @unchecked Sendable {
                 for a in actions {
                     switch a {
                     case .copy(_, _, _, let isNew): if isNew { report.copied += 1 } else { report.updated += 1 }
+                    case .move: report.moved += 1
                     case .retire: report.retired += 1
                     case .makeDir, .link: break
                     }
@@ -223,19 +364,22 @@ final class SyncEngine: @unchecked Sendable {
         var done = 0
 
         for (folder, actions) in planes {
-            let dest = folder.destination(under: root)
+            let dest = cfg.destination(of: folder, under: root)
             let origen = URL(fileURLWithPath: folder.source)
 
-            // El plan viene en tres bloques y cada uno se ejecuta a su manera.
+            // El plan viene en bloques y cada uno se ejecuta a su manera.
             // Las carpetas, en orden y de una en una: el padre antes que el
-            // hijo. Las copias, varias a la vez. Las retiradas, otra vez de
-            // una en una y de dentro hacia fuera, porque mover una carpeta
-            // mientras otro hilo mueve algo de dentro es pedir un lío.
+            // hijo. Las copias y los movimientos, varios a la vez. Las
+            // retiradas, otra vez de una en una y de dentro hacia fuera,
+            // porque mover una carpeta mientras otro hilo mueve algo de
+            // dentro es pedir un lío.
             var carpetas: [Action] = [], copias: [Action] = [], retiradas: [Action] = []
+            var movimientos: [Action] = []
             for a in actions {
                 switch a {
                 case .makeDir:        carpetas.append(a)
                 case .copy, .link:    copias.append(a)
+                case .move:           movimientos.append(a)
                 case .retire:         retiradas.append(a)
                 }
             }
@@ -251,6 +395,11 @@ final class SyncEngine: @unchecked Sendable {
             if !isCancelled {
                 try copiarEnParalelo(copias, from: origen, to: dest, folderName: folder.name,
                                      root: root, done: &done, total: totalActions, report: &report)
+            }
+
+            if !isCancelled {
+                try moverEnParalelo(movimientos, from: origen, to: dest, folderName: folder.name,
+                                    root: root, done: &done, total: totalActions, report: &report)
             }
 
             for case .retire(let rel, let isDir) in retiradas {
@@ -376,7 +525,7 @@ final class SyncEngine: @unchecked Sendable {
                     } catch {
                         falloAlCopiar = L("Enlace %1$@: %2$@", r, error.localizedDescription)
                     }
-                case .makeDir, .retire:
+                case .makeDir, .retire, .move:
                     continue      // no llegan aquí
                 }
 
@@ -411,6 +560,193 @@ final class SyncEngine: @unchecked Sendable {
         if desconectado { throw SyncError.disconnected }
     }
 
+    /// Lleva al disco lo que hay en el Mac y lo borra de allí, repartido entre
+    /// varios hilos como las copias.
+    ///
+    /// Es la única parte del programa que borra algo del Mac, así que el orden
+    /// no se negocia: se copia, se relee del disco y se compara con el
+    /// original, y **sólo entonces** se borra. Si la comprobación no sale
+    /// bien, se retira lo que se había escrito, el archivo se queda donde
+    /// estaba y se dice en el informe. Es preferible repetir el movimiento
+    /// mañana a descubrir dentro de un año que lo archivado era medio archivo.
+    ///
+    /// Las carpetas no se borran nunca: el esqueleto se queda en el Mac,
+    /// vacío, listo para volver a llenarse.
+    private func moverEnParalelo(_ acciones: [Action], from origen: URL, to dest: URL,
+                                 folderName: String, root: URL,
+                                 done: inout Int, total: Int,
+                                 report: inout SyncReport) throws {
+        guard !acciones.isEmpty else { return }
+
+        let cuentas = MoveTally(hechos: done)
+        var siguiente = 0
+        let reparto = NSLock()
+
+        let hilos = min(Self.concurrentCopies, acciones.count)
+        DispatchQueue.concurrentPerform(iterations: hilos) { _ in
+            while true {
+                reparto.lock()
+                let i = siguiente
+                siguiente += 1
+                reparto.unlock()
+                guard i < acciones.count, !self.isCancelled, !cuentas.get(\.desconectado) else { return }
+                guard case .move(let rel, let size, let mtime, let esEnlace) = acciones[i] else { continue }
+
+                let fuente = origen.appendingPathComponent(rel)
+                let etiqueta = "\(folderName)/\(rel)"
+                self.moverUno(fuente, to: dest.appendingPathComponent(rel),
+                              size: size, mtime: mtime, isSymlink: esEnlace,
+                              etiqueta: etiqueta, cuentas: cuentas)
+
+                let cuenta = cuentas.get(\.hechos)
+                // El disco puede irse en cualquier momento. Mirarlo cada 50
+                // evita cientos de errores idénticos y, sobre todo, evita
+                // seguir borrando del Mac archivos cuyo destino ya no está.
+                if cuenta % 50 == 0, !self.fm.fileExists(atPath: root.path) {
+                    cuentas.marcarDesconectado()
+                    return
+                }
+                self.onProgress?(cuenta, total, etiqueta)
+            }
+        }
+
+        done = cuentas.get(\.hechos)
+        report.errors += cuentas.get(\.errores)
+        report.vanished += cuentas.get(\.desaparecidos)
+        report.unverified += cuentas.get(\.sinVerificar)
+        report.renamed += cuentas.get(\.renombrados)
+        report.bytesWritten += cuentas.get(\.bytes)
+        report.moved += cuentas.get(\.movidos)
+        if cuentas.get(\.desconectado) { throw SyncError.disconnected }
+    }
+
+    /// Un archivo del Mac al disco: copiar, comprobar, borrar. En ese orden.
+    private func moverUno(_ fuente: URL, to preferido: URL, size: Int64, mtime: Date,
+                          isSymlink esEnlace: Bool, etiqueta: String, cuentas: MoveTally) {
+        // --- 1. ¿Con qué nombre entra? ----------------------------------
+        // `attributesOfItem` y no `fileExists`, que sigue los enlaces: uno
+        // roto existe y no lo parece, y escribir encima de él se llevaría por
+        // delante algo que ya se había archivado.
+        let (destinoInicial, ocupado) = cuentas.reservar(preferido) {
+            (try? self.fm.attributesOfItem(atPath: $0.path)) != nil
+        }
+        var destino = destinoInicial
+        var renombradoA: String? = destino == preferido ? nil : destino.lastPathComponent
+
+        // --- 2. Si ya había algo ahí, ¿es lo mismo? ---------------------
+        if ocupado {
+            if esElMismo(fuente, destino, size: size, isSymlink: esEnlace) {
+                // Ya estaba archivado y es idéntico. Duplicarlo como «-2» sólo
+                // llenaría el disco de copias de lo mismo cada vez que el
+                // archivo reapareciera en el Mac. Basta con quitarlo de aquí.
+                do {
+                    try fm.removeItem(at: fuente)
+                    cuentas.apuntar(movido: 0, renombradoA: nil, etiqueta: etiqueta)
+                } catch {
+                    if !fm.fileExists(atPath: fuente.path) { cuentas.apuntar(desaparecido: etiqueta) }
+                    else { cuentas.apuntar(error: "\(etiqueta): \(error.localizedDescription)") }
+                }
+                return
+            }
+            // Es otro archivo con el mismo nombre. El de antes no se toca —ya
+            // no está en el Mac y no hay otra copia en ninguna parte— y el que
+            // llega entra a su lado.
+            destino = cuentas.reservarLibre(preferido) {
+                (try? self.fm.attributesOfItem(atPath: $0.path)) != nil
+            }
+            renombradoA = destino.lastPathComponent
+        }
+
+        // --- 3. Copiar, comprobar, y sólo entonces borrar ---------------
+        do {
+            var escritos: Int64 = 0
+            if esEnlace {
+                try copySymlink(from: fuente, to: destino)
+            } else {
+                try copyAtomically(from: fuente, to: destino, size: size, mtime: mtime)
+                escritos = size
+            }
+
+            if esElMismo(fuente, destino, size: size, isSymlink: esEnlace) {
+                // La fecha buena, por si `copyAtomically` marcó el archivo como
+                // sospechoso: allí la sospecha se apunta en la fecha porque no
+                // hay nada mejor, pero aquí acabamos de comparar el contenido
+                // entero y sabemos que está bien.
+                if !esEnlace { try? fm.setAttributes([.modificationDate: mtime], ofItemAtPath: destino.path) }
+                try fm.removeItem(at: fuente)
+                cuentas.apuntar(movido: escritos, renombradoA: renombradoA, etiqueta: etiqueta)
+            } else if isCancelled {
+                // La comparación se corta al cancelar y devuelve que no
+                // cuadran, que es lo prudente pero no es verdad. Se deshace lo
+                // escrito igual, y no se apunta como sospechoso: no lo es, sólo
+                // se ha pedido parar.
+                try? fm.removeItem(at: destino)
+                cuentas.apuntar()
+            } else {
+                // Lo que llegó no es lo que salió: alguien estaba guardando el
+                // archivo, o el disco escribió mal. Se deshace lo escrito para
+                // no dejar medio archivo con nombre de bueno, y el original se
+                // queda en el Mac para volver a intentarlo mañana.
+                try? fm.removeItem(at: destino)
+                cuentas.apuntar(sinVerificar: etiqueta)
+            }
+        } catch {
+            if isCancelled {
+                cuentas.apuntar()      // parar a mitad no es un fallo
+            } else if !fm.fileExists(atPath: fuente.path) {
+                cuentas.apuntar(desaparecido: etiqueta)
+            } else {
+                cuentas.apuntar(error: "\(etiqueta): \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Si el archivo del disco es el mismo que el del Mac, byte a byte.
+    ///
+    /// Comparar el contenido y no la fecha y el tamaño, que es lo que hace el
+    /// modo sincronizar, porque lo que viene después es borrar el original: si
+    /// la comprobación se equivoca, no hay segunda copia en ninguna parte. Se
+    /// paga una relectura de lo que se mueve —no del backup entero—, y sólo la
+    /// primera vez que cada archivo pasa por aquí.
+    private func esElMismo(_ mac: URL, _ disco: URL, size: Int64, isSymlink: Bool) -> Bool {
+        if isSymlink {
+            guard let a = try? fm.destinationOfSymbolicLink(atPath: mac.path),
+                  let b = try? fm.destinationOfSymbolicLink(atPath: disco.path) else { return false }
+            return a == b
+        }
+        guard let da = try? fm.attributesOfItem(atPath: mac.path),
+              let db = try? fm.attributesOfItem(atPath: disco.path),
+              (da[.type] as? FileAttributeType) == .typeRegular,
+              (db[.type] as? FileAttributeType) == .typeRegular
+        else { return false }
+        let sa = (da[.size] as? NSNumber)?.int64Value ?? -1
+        let sb = (db[.size] as? NSNumber)?.int64Value ?? -2
+        // Si los tamaños ya no cuadran, no hay nada que leer: son distintos, y
+        // además el del Mac ha cambiado desde que se planificó.
+        guard sa == sb, sa == size else { return false }
+        return sameContents(mac, disco)
+    }
+
+    /// Compara dos archivos por trozos, sin cargarlos enteros en memoria.
+    ///
+    /// Por trozos y no de una: un vídeo de 20 GB leído entero se llevaría por
+    /// delante la memoria de la máquina, y aquí lo normal es mover justo lo
+    /// grande que ya no cabe en el Mac.
+    private func sameContents(_ a: URL, _ b: URL) -> Bool {
+        guard let fa = FileHandle(forReadingAtPath: a.path) else { return false }
+        defer { try? fa.close() }
+        guard let fb = FileHandle(forReadingAtPath: b.path) else { return false }
+        defer { try? fb.close() }
+
+        while true {
+            if isCancelled { return false }
+            let ta = fa.readData(ofLength: Self.chunkSize)
+            let tb = fb.readData(ofLength: Self.chunkSize)
+            if ta != tb { return false }
+            if ta.isEmpty { return true }
+        }
+    }
+
     // MARK: Recorrer
 
     /// Lo que sale de recorrer una carpeta. Se devuelve entero en vez de ir
@@ -434,7 +770,13 @@ final class SyncEngine: @unchecked Sendable {
     ///   van a preguntarle al proceso de iCloud una vez por archivo. Sobre
     ///   veinte mil archivos son 0,9 s en vez de 0,05 s, y en una carpeta que
     ///   no está en iCloud la respuesta es siempre la misma.
-    private func scan(_ base: URL, matcher: ExcludeMatcher, cloudKeys: Bool) -> ScanResult {
+    /// - Parameter skip: rutas relativas que no se miran ni se entra en ellas,
+    ///   porque son de otra carpeta configurada. A diferencia de `matcher`,
+    ///   que compara nombres sueltos, esto compara la ruta entera: saltarse
+    ///   «otros» por el nombre se llevaría por delante todos los «otros» del
+    ///   árbol, y aquí sólo sobra uno.
+    private func scan(_ base: URL, matcher: ExcludeMatcher, cloudKeys: Bool,
+                      skip: Set<String> = []) -> ScanResult {
         var out = ScanResult()
         var keys: [URLResourceKey] = [
             .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey,
@@ -469,7 +811,8 @@ final class SyncEngine: @unchecked Sendable {
                 if !matcher.matches(name),
                    let at = try? fm.attributesOfItem(atPath: url.path),
                    (at[.type] as? FileAttributeType) == .typeSymbolicLink,
-                   let rel = relativePath(of: url, under: basePath, cache: &cacheDePadres) {
+                   let rel = relativePath(of: url, under: basePath, cache: &cacheDePadres),
+                   !skip.contains(rel) {
                     out.entries[rel] = Entry(rel: rel, isDir: false, isSymlink: true, size: 0,
                                              mtime: (at[.modificationDate] as? Date) ?? .distantPast,
                                              linkTarget: try? fm.destinationOfSymbolicLink(atPath: url.path))
@@ -483,18 +826,30 @@ final class SyncEngine: @unchecked Sendable {
                 continue
             }
 
+            guard let rel = relativePath(of: url, under: basePath, cache: &cacheDePadres) else { continue }
+
+            // Otra carpeta configurada, que se lleva sola: ni se copia desde
+            // aquí ni —lo que de verdad importa— se retira desde aquí al
+            // recorrer el lado del disco. Se mira antes que iCloud porque
+            // preguntar por lo que vamos a saltar sería pagar por nada.
+            if skip.contains(rel) {
+                if isDir { en.skipDescendants() }
+                continue
+            }
+
             // iCloud: un archivo que sólo está en la nube pesa 0 en disco y
             // abrirlo dispara la descarga. Copiar la carpeta entera se
             // convertiría en bajar iCloud completo por sorpresa, con el disco
             // externo esperando y la barra de progreso parada.
+            //
+            // En una carpeta en modo mover, además, saltárselo es lo que evita
+            // que se borre del Mac algo que nunca llegó a copiarse.
             if cloudKeys, v.isUbiquitousItem == true,
                let st = v.ubiquitousItemDownloadingStatus, st != .current {
                 out.skipped.append(L("%@ — está en iCloud sin descargar", name))
                 if isDir { en.skipDescendants() }
                 continue
             }
-
-            guard let rel = relativePath(of: url, under: basePath, cache: &cacheDePadres) else { continue }
 
             let esEnlace = v.isSymbolicLink ?? false
             out.entries[rel] = Entry(
@@ -597,6 +952,35 @@ final class SyncEngine: @unchecked Sendable {
             + sobras.map(\.accion)
     }
 
+    /// El plan de una carpeta en modo mover: todo lo que hay en el Mac se
+    /// lleva al disco.
+    ///
+    /// No hace falta el otro lado. No se compara nada, porque no se trata de
+    /// dejar los dos iguales sino de vaciar uno dentro del otro, y no se
+    /// retira nada nunca: lo que ya esté en el disco se queda, que para eso se
+    /// llevó allí. Lo que hay que decidir archivo a archivo —si ya existe uno
+    /// con ese nombre— se decide al escribir, mirando el disco en ese momento.
+    ///
+    /// Las carpetas se crean en el destino igual que en el modo sincronizar, y
+    /// **ninguna se borra del Mac**: el esqueleto se queda vacío, tal cual,
+    /// listo para volver a llenarse.
+    private func makeMovePlan(source: [String: Entry]) -> [Action] {
+        var carpetas: [(profundidad: Int, rel: String)] = []
+        var archivos: [(rel: String, accion: Action)] = []
+
+        for (rel, e) in source {
+            if e.isDir && !e.isSymlink {
+                carpetas.append((depth(of: rel), rel))
+            } else {
+                archivos.append((rel, .move(rel: rel, size: e.size, mtime: e.mtime, isSymlink: e.isSymlink)))
+            }
+        }
+
+        carpetas.sort { $0.profundidad < $1.profundidad }
+        archivos.sort { $0.rel < $1.rel }
+        return carpetas.map { Action.makeDir(rel: $0.rel) } + archivos.map(\.accion)
+    }
+
     /// Cuántas carpetas de hondura tiene una ruta relativa. Se cuentan las
     /// barras sin trocear la cadena, que es lo mismo y no reserva memoria.
     private func depth(of rel: String) -> Int {
@@ -608,6 +992,7 @@ final class SyncEngine: @unchecked Sendable {
     private func relOf(_ a: Action) -> String {
         switch a {
         case .copy(let r, _, _, _): return r
+        case .move(let r, _, _, _): return r
         case .makeDir(let r):    return r
         case .link(let r):       return r
         case .retire(let r, _):  return r

@@ -19,9 +19,13 @@ struct HistoryEntry: Codable, Identifiable {
     var copied = 0
     var updated = 0
     var retired = 0
+    var moved = 0
     var errors: [String] = []
     /// Cuántos estaban en uso y se volverán a copiar.
     var changed = 0
+    /// Cuántos se copiaron al disco pero **no** se borraron del Mac porque no
+    /// se pudo comprobar que la copia estuviera bien.
+    var unverified = 0
     var bytes: Int64 = 0
     var duration: TimeInterval = 0
     var cancelled = false
@@ -33,8 +37,10 @@ struct HistoryEntry: Codable, Identifiable {
         copied = report.copied
         updated = report.updated
         retired = report.retired
+        moved = report.moved
         errors = report.errors
         changed = report.changed.count
+        unverified = report.unverified.count
         bytes = report.bytesWritten
         duration = report.duration
         cancelled = report.cancelled
@@ -45,17 +51,43 @@ struct HistoryEntry: Codable, Identifiable {
         volumeName = volume
     }
 
+    /// Clave a clave, por lo mismo que en `Config`: el `init(from:)` que
+    /// sintetiza Swift usa `decode` y no mira los valores por omisión, así que
+    /// una clave nueva —`moved`, sin ir más lejos— haría fallar la
+    /// decodificación de **todo** el archivo. Como `History.load()` lo intenta
+    /// con `try?`, el fallo no se vería: la app arrancaría con el historial en
+    /// blanco y parecería que se ha perdido lo de todos estos meses.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        date = try c.decodeIfPresent(Date.self, forKey: .date) ?? Date()
+        volumeName = try c.decodeIfPresent(String.self, forKey: .volumeName) ?? ""
+        copied = try c.decodeIfPresent(Int.self, forKey: .copied) ?? 0
+        updated = try c.decodeIfPresent(Int.self, forKey: .updated) ?? 0
+        retired = try c.decodeIfPresent(Int.self, forKey: .retired) ?? 0
+        moved = try c.decodeIfPresent(Int.self, forKey: .moved) ?? 0
+        errors = try c.decodeIfPresent([String].self, forKey: .errors) ?? []
+        changed = try c.decodeIfPresent(Int.self, forKey: .changed) ?? 0
+        unverified = try c.decodeIfPresent(Int.self, forKey: .unverified) ?? 0
+        bytes = try c.decodeIfPresent(Int64.self, forKey: .bytes) ?? 0
+        duration = try c.decodeIfPresent(TimeInterval.self, forKey: .duration) ?? 0
+        cancelled = try c.decodeIfPresent(Bool.self, forKey: .cancelled) ?? false
+        failure = try c.decodeIfPresent(String.self, forKey: .failure)
+    }
+
     var ok: Bool { failure == nil && errors.isEmpty && !cancelled }
 
     var summary: String {
         if let f = failure { return f }
-        if cancelled { return L("Detenido — %@ copiados antes de parar", plural("%ld archivos", copied + updated)) }
+        if cancelled { return L("Detenido — %@ copiados antes de parar", plural("%ld archivos", copied + updated + moved)) }
         var partes: [String] = []
         if copied > 0 { partes.append(plural("%ld nuevos", copied)) }
         if updated > 0 { partes.append(plural("%ld actualizados", updated)) }
+        if moved > 0 { partes.append(plural("%ld movidos", moved)) }
         if retired > 0 { partes.append(plural("%ld retirados", retired)) }
         if partes.isEmpty { partes.append(L("sin cambios")) }
         if changed > 0 { partes.append(plural("%ld estaban en uso", changed)) }
+        if unverified > 0 { partes.append(plural("%ld sin mover", unverified)) }
         if !errors.isEmpty { partes.append(plural("%ld con error", errors.count)) }
         return partes.joined(separator: ", ")
     }
@@ -333,6 +365,15 @@ final class AppState: ObservableObject {
         }
         for v in report.vanished.prefix(20) {
             append(log: L("· %@ desapareció antes de poder copiarlo", v))
+        }
+        // Esto hay que decirlo sí o sí: quien pone una carpeta en modo mover
+        // espera encontrarla vacía, y si algo se ha quedado tiene que saber
+        // cuál y por qué.
+        for u in report.unverified.prefix(20) {
+            append(log: "⚠︎ " + L("%@ no se pudo comprobar después de copiarlo; sigue en el Mac", u))
+        }
+        for r in report.renamed.prefix(20) {
+            append(log: L("· ya había otro con ese nombre en el disco: %@", r))
         }
         append(log: entrada.summary)
         status = volume.map { .listo(volumen: $0.name) } ?? .sinDisco

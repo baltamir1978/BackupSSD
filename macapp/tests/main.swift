@@ -490,7 +490,7 @@ test("Dos carpetas con el mismo nombre de destino se avisan antes de correr") {
         SyncFolder(source: sb.origen.appendingPathComponent("dos/docs").path),
     ]
     let p = c.problems()
-    check(p.contains { $0.contains("dos carpetas") }, "el aviso sale por la configuración")
+    check(p.contains { $0.contains("el mismo sitio") }, "el aviso sale por la configuración")
 }
 
 test("Una carpeta que ya no existe se avisa, no revienta") {
@@ -498,6 +498,198 @@ test("Una carpeta que ya no existe se avisa, no revienta") {
     var c = sb.config()
     c.folders = [SyncFolder(source: sb.origen.appendingPathComponent("fantasma").path)]
     check(c.problems().contains { $0.contains("ya no existe") }, "lo dice claro")
+}
+
+// MARK: - Mover
+
+/// Si esa ruta del Mac existe y es una carpeta.
+func esCarpetaEnElMac(_ sb: Sandbox, _ rel: String) -> Bool {
+    var dir: ObjCBool = false
+    let hay = fm.fileExists(atPath: sb.origen.appendingPathComponent(rel).path, isDirectory: &dir)
+    return hay && dir.boolValue
+}
+
+func hayEnElMac(_ sb: Sandbox, _ rel: String) -> Bool {
+    fm.fileExists(atPath: sb.origen.appendingPathComponent(rel).path)
+}
+
+/// Config con una sola carpeta, en modo mover, que se lleva todo el origen.
+func configMover(_ sb: Sandbox) -> Config {
+    var c = sb.config()
+    c.folders = [SyncFolder(source: sb.origen.path, name: "datos", mode: .move)]
+    return c
+}
+
+test("Mover: lo que hay en el Mac pasa al disco y se va del Mac") {
+    let sb = Sandbox("mover-basico")
+    sb.write("a.txt", "uno")
+    sb.write("2024/b.txt", "dos")
+
+    let r = run(sb, configMover(sb))
+    checkEq(r.moved, 2, "cuenta los dos que ha movido")
+    checkEq(r.retired, 0, "y no retira nada, que aquí no se retira nunca")
+    check(sb.exists("datos/a.txt"), "el archivo llega al disco")
+    checkEq(sb.read("datos/2024/b.txt"), "dos", "el de la subcarpeta, con su contenido")
+    check(!hayEnElMac(sb, "a.txt"), "ya no está en el Mac")
+    check(!hayEnElMac(sb, "2024/b.txt"), "ni el de dentro")
+}
+
+test("Mover: el esqueleto de carpetas se queda en el Mac, vacío") {
+    let sb = Sandbox("mover-esqueleto")
+    sb.write("2024/enero/a.txt", "x")
+
+    _ = run(sb, configMover(sb))
+    check(esCarpetaEnElMac(sb, "2024"), "la carpeta de fuera sigue ahí")
+    check(esCarpetaEnElMac(sb, "2024/enero"), "y la de dentro también")
+    checkEq((try? fm.contentsOfDirectory(atPath: sb.origen.appendingPathComponent("2024/enero").path))?.count, 0,
+            "vacía, lista para volver a llenarse")
+}
+
+test("Mover: lo que ya estaba en el disco se queda donde está") {
+    let sb = Sandbox("mover-acumula")
+    sb.write("datos/archivado.txt", "de antes", in: sb.disco)
+    sb.write("nuevo.txt", "de ahora")
+
+    let r = run(sb, configMover(sb))
+    checkEq(sb.read("datos/archivado.txt"), "de antes", "lo de antes sigue intacto")
+    check(sb.exists("datos/nuevo.txt"), "y lo nuevo se le añade")
+    checkEq(r.retired, 0, "no retira lo que no está en el Mac")
+    check(!sb.exists("_Retirados"), "ni crea papelera ninguna")
+}
+
+test("Mover: un nombre repetido con otro contenido entra al lado, como «-2»") {
+    let sb = Sandbox("mover-colision")
+    sb.write("datos/informe.pdf", "el de marzo", in: sb.disco)
+    sb.write("informe.pdf", "el de agosto")
+
+    let r = run(sb, configMover(sb))
+    checkEq(sb.read("datos/informe.pdf"), "el de marzo", "el que estaba no se toca")
+    checkEq(sb.read("datos/informe-2.pdf"), "el de agosto", "y el que llega entra a su lado")
+    checkEq(r.moved, 1, "cuenta uno movido")
+    check(r.renamed.count == 1, "y avisa de que hubo que renombrarlo")
+    check(!hayEnElMac(sb, "informe.pdf"), "el del Mac se va igualmente")
+}
+
+test("Mover: si en el disco ya está el mismo archivo, no se duplica") {
+    let sb = Sandbox("mover-identico")
+    sb.write("datos/nota.txt", "lo mismo", in: sb.disco)
+    sb.write("nota.txt", "lo mismo")
+
+    let r = run(sb, configMover(sb))
+    check(!sb.exists("datos/nota-2.txt"), "no crea una copia de lo que ya estaba archivado")
+    checkEq(sb.read("datos/nota.txt"), "lo mismo", "el del disco sigue igual")
+    check(!hayEnElMac(sb, "nota.txt"), "y el del Mac se va, que para eso ya está guardado")
+    checkEq(r.moved, 1, "cuenta como movido")
+    checkEq(r.renamed.count, 0, "sin renombrar nada")
+}
+
+test("Mover: lo excluido no se copia, y sobre todo no se borra del Mac") {
+    let sb = Sandbox("mover-excluido")
+    sb.write("bueno.txt", "sí")
+    sb.write(".DS_Store", "basura")
+    sb.write("node_modules/lib.js", "no")
+
+    _ = run(sb, configMover(sb))
+    check(sb.exists("datos/bueno.txt"), "lo normal se mueve")
+    check(!sb.exists("datos/.DS_Store"), "lo excluido no llega al disco")
+    check(hayEnElMac(sb, ".DS_Store"), "y sigue en el Mac: lo que no se copia, no se borra")
+    check(hayEnElMac(sb, "node_modules/lib.js"), "tampoco se vacía lo que ni se mira")
+}
+
+test("Mover: el ensayo cuenta lo que haría y no toca nada") {
+    let sb = Sandbox("mover-ensayo")
+    sb.write("a.txt", "uno")
+
+    let r = run(sb, configMover(sb), dryRun: true)
+    checkEq(r.moved, 1, "dice que movería uno")
+    check(hayEnElMac(sb, "a.txt"), "pero el archivo sigue en el Mac")
+    check(!sb.exists("datos/a.txt"), "y no ha llegado al disco")
+}
+
+test("Mover dentro de sincronizar: cada carpeta a lo suyo") {
+    let sb = Sandbox("mover-anidada")
+    sb.write("documentos/carta.txt", "hola")
+    sb.write("documentos/otros/viejo.pdf", "de 2024")
+
+    var c = sb.config()
+    c.folders = [
+        SyncFolder(source: sb.origen.appendingPathComponent("documentos").path, name: "Documentos"),
+        SyncFolder(source: sb.origen.appendingPathComponent("documentos/otros").path,
+                   name: "otros", mode: .move),
+    ]
+    checkEq(c.problems().count, 0, "la configuración no tiene nada que objetar")
+
+    let r = run(sb, c)
+    check(sb.exists("Documentos/carta.txt"), "lo sincronizado va a su sitio")
+    check(sb.exists("Documentos/otros/viejo.pdf"), "y lo movido, a su sitio natural dentro")
+    check(!hayEnElMac(sb, "documentos/otros/viejo.pdf"), "lo movido se fue del Mac")
+    check(hayEnElMac(sb, "documentos/carta.txt"), "lo sincronizado sigue en el Mac")
+    checkEq(r.retired, 0, "no se retira nada en la primera pasada")
+
+    // La segunda pasada es la peligrosa: al recorrer el disco, «Documentos» ve
+    // una carpeta «otros» llena de cosas que ya no están en el Mac. Si no se
+    // la saltara, se las llevaría enteras a _Retirados.
+    let r2 = run(sb, c)
+    check(sb.exists("Documentos/otros/viejo.pdf"), "la segunda pasada no se lleva lo movido")
+    checkEq(r2.retired, 0, "no retira nada")
+    check(!sb.exists("_Retirados"), "ni crea papelera")
+}
+
+test("Mover: desactivar la carpeta no hace que la de fuera se lleve lo movido") {
+    let sb = Sandbox("mover-desactivada")
+    sb.write("documentos/otros/viejo.pdf", "de 2024")
+
+    var c = sb.config()
+    c.folders = [
+        SyncFolder(source: sb.origen.appendingPathComponent("documentos").path, name: "Documentos"),
+        SyncFolder(source: sb.origen.appendingPathComponent("documentos/otros").path,
+                   name: "otros", mode: .move),
+    ]
+    _ = run(sb, c)
+    check(sb.exists("Documentos/otros/viejo.pdf"), "primero se mueve")
+
+    // Desactivar quiere decir «no la toques», nunca «trágatela desde fuera».
+    c.folders[1].enabled = false
+    let r = run(sb, c)
+    check(sb.exists("Documentos/otros/viejo.pdf"), "y desactivada sigue sin tocarse")
+    checkEq(r.retired, 0, "no se retira nada")
+}
+
+test("El destino de una carpeta anidada sale de la de fuera") {
+    let sb = Sandbox("destinos")
+    sb.mkdir("documentos/otros/hondo")
+
+    var c = sb.config()
+    let docs = SyncFolder(source: sb.origen.appendingPathComponent("documentos").path, name: "Documentos")
+    let otros = SyncFolder(source: sb.origen.appendingPathComponent("documentos/otros").path,
+                           name: "otros", mode: .move)
+    let hondo = SyncFolder(source: sb.origen.appendingPathComponent("documentos/otros/hondo").path,
+                           name: "hondo")
+    c.folders = [docs, otros, hondo]
+
+    let d = URL(fileURLWithPath: "/D")
+    checkEq(c.destination(of: docs, under: d).path, "/D/Documentos", "la de fuera, a su nombre")
+    checkEq(c.destination(of: otros, under: d).path, "/D/Documentos/otros", "la de dentro, a su sitio natural")
+    checkEq(c.destination(of: hondo, under: d).path, "/D/Documentos/otros/hondo", "y la de más adentro, también")
+    checkEq(c.nestedRelativePaths(of: docs), ["otros"], "«Documentos» se salta «otros» y sólo eso")
+    checkEq(c.nestedRelativePaths(of: otros), ["hondo"], "y «otros» se salta «hondo»")
+    checkEq(c.nestedRelativePaths(of: hondo), [], "la de más adentro no se salta nada")
+}
+
+test("Dos destinos anidados sin estarlo en el Mac se avisan") {
+    let sb = Sandbox("destinos-cruzados")
+    sb.mkdir("uno"); sb.mkdir("dos")
+
+    var c = sb.config()
+    // Un `name` con barras es lo que alguien podría escribir a mano en el
+    // config.json, y dejaría a «dos» recorriendo el destino de «uno».
+    var raro = SyncFolder(source: sb.origen.appendingPathComponent("uno").path, name: "uno")
+    raro.name = "dos/uno"
+    c.folders = [raro, SyncFolder(source: sb.origen.appendingPathComponent("dos").path, name: "dos")]
+
+    let p = c.problems()
+    check(p.contains { $0.contains("no vale como nombre") } || p.contains { $0.contains("cae dentro") },
+          "la configuración se queja")
 }
 
 // MARK: - Discos
