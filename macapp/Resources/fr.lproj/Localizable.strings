@@ -173,3 +173,10 @@
 "no conectado" = "non connecté";
 "sin carpetas todavía" = "aucun dossier pour l’instant";
 "¿Quitar «%@» de Backup SSD?" = "Retirer « %@ » de Backup SSD ?";
+
+// El detalle del registro
+"%1$@ · %2$@" = "%1$@ · %2$@";
+"Comparados %@: ninguno había cambiado." = "Comparés %@ : aucun n’avait changé.";
+"Esto es lo que haría, sin tocar nada:" = "Voici ce qui serait fait, sans rien toucher :";
+"ensayo" = "essai";
+"… y %@ más, que no caben aquí." = "… et %@ de plus, qui ne tiennent pas ici.";

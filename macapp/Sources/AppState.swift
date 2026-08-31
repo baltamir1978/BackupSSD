@@ -192,6 +192,10 @@ final class AppState: ObservableObject {
     /// y la memoria del Mac, y a la vez irían las dos más lentas que en fila.
     func sync(_ disk: DiskProfile, dryRun: Bool = false) {
         guard !isBusy(disk) else { return }
+        // El registro se vacía al empezar una tanda, y no al empezar cada
+        // disco: si no, el segundo de la cola borraría el detalle del primero
+        // justo cuando se acaba de escribir, que es cuando se va a leer.
+        if working == nil, cola.isEmpty { log = [] }
         cola.append(Turno(disk: disk.id, dryRun: dryRun))
         queued = cola.map(\.disk)
         arrancarSiguiente()
@@ -233,11 +237,15 @@ final class AppState: ObservableObject {
         engine = motor
         working = disk.id
         statuses[disk.id] = .comparando
-        log = []
 
         let id = disk.id
         let cfg = disk
         let nombre = volume(of: disk)?.name ?? disk.volumeName
+
+        if !log.isEmpty { append(log: "") }
+        append(log: L("%1$@ · %2$@", nombre.isEmpty ? L("Disco sin nombre") : nombre,
+                      Date().formatted(date: .omitted, time: .shortened))
+               + (dryRun ? " · " + L("ensayo") : ""))
 
         motor.onProgress = { [weak self] hechos, total, actual in
             DispatchQueue.main.async {
@@ -263,6 +271,7 @@ final class AppState: ObservableObject {
                     // Un ensayo no es una sincronización: se enseña, pero no
                     // se apunta en el historial como si se hubiera copiado.
                     if dryRun {
+                        self.volcar(r, ensayo: true)
                         self.append(log: L("Ensayo: %@", r.summary))
                         self.statuses[id] = nil
                         self.terminar(id)
@@ -366,6 +375,7 @@ final class AppState: ObservableObject {
         let entrada = HistoryEntry(report: report, volume: nombre)
         history.insert(entrada, at: 0)
         History.save(history)
+        volcar(report, ensayo: false)
         for e in report.errors.prefix(20) { append(log: "⚠︎ \(e)") }
         for s in report.skipped.prefix(20) { append(log: L("· saltado: %@", s)) }
         // Merece la pena decirlo: son archivos que estaban abiertos y en uso,
@@ -399,9 +409,73 @@ final class AppState: ObservableObject {
         terminar(id)
     }
 
-    private func append(log linea: String) {
-        log.append(linea)
-        if log.count > 500 { log.removeFirst(log.count - 500) }
+    private func append(log linea: String) { append(log: [linea]) }
+
+    /// Varias líneas de una vez.
+    ///
+    /// De una en una no valdría: el detalle de una copia son miles de líneas, y
+    /// como `log` está publicado, cada `append` redibujaría la ventana entera.
+    /// Así se redibuja una vez.
+    private func append(log lineas: [String]) {
+        guard !lineas.isEmpty else { return }
+        log.append(contentsOf: lineas)
+        if log.count > Self.maxLog { log.removeFirst(log.count - Self.maxLog) }
+    }
+
+    /// Cuántas líneas se guardan del registro. Da de sobra para el detalle de
+    /// una pasada entera; lo de antes se va, que para eso está el historial.
+    private static let maxLog = 5000
+
+    /// El detalle de lo que ha pasado, agrupado por carpeta.
+    ///
+    /// El resumen dice cuántos; esto dice **cuáles**, que es lo que uno quiere
+    /// mirar cuando se pregunta si algo se copió o por qué el disco tiene una
+    /// cosa de más.
+    private func volcar(_ report: SyncReport, ensayo: Bool) {
+        guard !report.changes.isEmpty else {
+            // Decir «sin cambios» a secas no informa de nada; decir cuántos se
+            // han mirado para llegar a esa conclusión, sí.
+            append(log: L("Comparados %@: ninguno había cambiado.",
+                          plural("%ld archivos", report.unchanged)))
+            return
+        }
+
+        var lineas: [String] = []
+        if ensayo { lineas.append(L("Esto es lo que haría, sin tocar nada:")) }
+
+        var carpeta: String?
+        for c in report.changes {
+            // La ruta viene como «Documents/hondo/informe.pdf»: el primer
+            // trozo es la carpeta configurada y hace de cabecera, para no
+            // repetirla en cada una de sus líneas.
+            let corte = c.path.firstIndex(of: "/")
+            let suya = corte.map { String(c.path[..<$0]) } ?? c.path
+            let dentro = corte.map { String(c.path[c.path.index(after: $0)...]) } ?? c.path
+            if suya != carpeta {
+                carpeta = suya
+                if !lineas.isEmpty { lineas.append("") }
+                lineas.append(suya)
+            }
+            let tam = c.bytes > 0 ? "  (\(fmtBytes(c.bytes)))" : ""
+            lineas.append("  \(marca(c.kind)) \(dentro)\(tam)")
+        }
+        if report.changesOmitted > 0 {
+            lineas.append("")
+            lineas.append(L("… y %@ más, que no caben aquí.", plural("%ld archivos", report.changesOmitted)))
+        }
+        lineas.append("")
+        append(log: lineas)
+    }
+
+    /// El símbolo de cada cosa. Cortos y distintos entre sí: la lista se lee
+    /// de arriba abajo buscando lo que no se esperaba.
+    private func marca(_ k: SyncReport.Change.Kind) -> String {
+        switch k {
+        case .new:     return "+"      // no estaba en el disco
+        case .updated: return "~"      // estaba, y ha cambiado
+        case .moved:   return "→"      // se ha llevado al disco y borrado del Mac
+        case .retired: return "←"      // ya no está en el Mac; se aparta
+        }
     }
 
     // MARK: Cosas que pide la interfaz

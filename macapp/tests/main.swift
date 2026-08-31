@@ -999,6 +999,74 @@ test("Los problemas de un disco no manchan al otro") {
     check(!cfg.problems(of: malo).isEmpty, "y el que no, no")
 }
 
+// MARK: - El detalle de lo que se hizo
+
+// El registro decía cuántos archivos, pero no cuáles. Ahora el informe trae la
+// lista, que es lo que uno mira cuando se pregunta si algo se copió o de dónde
+// ha salido lo que sobra en el disco.
+test("El informe dice qué archivos son nuevos") {
+    let sb = Sandbox("detalle-nuevos")
+    sb.write("informe.txt", "hola")
+    sb.write("hondo/nota.md", "más adentro")
+
+    let r = run(sb, sb.config())
+    checkEq(r.changes.count, 2, "una línea por archivo")
+    check(r.changes.allSatisfy { $0.kind == .new }, "los dos son nuevos")
+    checkEq(r.changes.map(\.path).sorted(), ["datos/hondo/nota.md", "datos/informe.txt"],
+            "con su ruta desde la raíz del backup")
+    check(r.changes.allSatisfy { $0.bytes > 0 }, "y con su tamaño")
+}
+
+test("Y cuáles han cambiado, y cuáles se han retirado") {
+    let sb = Sandbox("detalle-cambios")
+    sb.write("igual.txt", "no me toques")
+    sb.write("cambia.txt", "versión 1")
+    sb.write("se-va.txt", "adiós")
+    _ = run(sb, sb.config())
+
+    sb.write("cambia.txt", "versión 2, que es más larga")
+    try? FileManager.default.removeItem(at: sb.origen.appendingPathComponent("se-va.txt"))
+
+    let r = run(sb, sb.config())
+    let porTipo = Dictionary(grouping: r.changes, by: \.kind)
+    checkEq(porTipo[.updated]?.map(\.path), ["datos/cambia.txt"], "el que cambió sale como actualizado")
+    checkEq(porTipo[.retired]?.map(\.path), ["datos/se-va.txt"], "el que ya no está, como retirado")
+    check(porTipo[.new] == nil, "y el que no se tocó no sale")
+    checkEq(r.changes.count, 2, "sólo lo que se movió de sitio")
+}
+
+test("El ensayo cuenta lo mismo, sin tocar nada") {
+    let sb = Sandbox("detalle-ensayo")
+    sb.write("uno.txt", "1")
+    sb.write("dos.txt", "2")
+
+    let r = run(sb, sb.config(), dryRun: true)
+    checkEq(r.changes.count, 2, "dice los dos que copiaría")
+    check(r.changes.allSatisfy { $0.kind == .new }, "y que serían nuevos")
+    check(!sb.exists("datos/uno.txt"), "sin haber copiado nada")
+}
+
+test("Una carpeta en modo mover dice qué se llevó") {
+    let sb = Sandbox("detalle-mover")
+    sb.write("factura.pdf", "contenido")
+    let r = run(sb, configMover(sb))
+    checkEq(r.changes.map(\.kind), [.moved], "sale como movido")
+    checkEq(r.changes.first?.path, "datos/factura.pdf", "con su ruta")
+    check(!FileManager.default.fileExists(atPath: sb.origen.appendingPathComponent("factura.pdf").path),
+          "y ya no está en el Mac")
+}
+
+test("Con muchísimos archivos, la lista se corta y lo dice") {
+    let sb = Sandbox("detalle-tope")
+    // Uno más que el tope, para que sobre exactamente uno.
+    for i in 1...(SyncReport.maxChanges + 1) { sb.write("f\(i).txt", "x") }
+
+    let r = run(sb, sb.config())
+    checkEq(r.changes.count, SyncReport.maxChanges, "la lista se queda en el tope")
+    checkEq(r.changesOmitted, 1, "y se cuenta lo que no cabe")
+    checkEq(r.copied, SyncReport.maxChanges + 1, "pero se copian todos igual")
+}
+
 // MARK: - Historial
 
 // El historial se escribía en ISO-8601 y se leía con el decodificador por

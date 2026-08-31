@@ -334,7 +334,10 @@ struct MainWindowView: View {
                 vacio("Sin novedades", "Aquí aparecen los avisos de la última sincronización.")
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 3) {
+                    // Perezosa: el detalle de una copia entera son miles de
+                    // líneas, y un VStack normal las construye todas de golpe
+                    // aunque no se vea ninguna.
+                    LazyVStack(alignment: .leading, spacing: 3) {
                         ForEach(Array(state.log.enumerated()), id: \.offset) { _, linea in
                             Text(linea)
                                 .font(.system(.caption, design: .monospaced))

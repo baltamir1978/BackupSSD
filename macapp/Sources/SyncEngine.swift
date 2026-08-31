@@ -14,6 +14,35 @@ import Foundation
 // MARK: - Qué se ha hecho
 
 struct SyncReport {
+    /// Qué le ha pasado a un archivo. Es lo que se cuenta en el registro:
+    /// los números del resumen dicen *cuántos*, y esto dice *cuáles*.
+    struct Change {
+        enum Kind { case new, updated, moved, retired }
+        var kind: Kind
+        /// Ruta desde la raíz del backup: «Documents/informe.pdf».
+        var path: String
+        var bytes: Int64 = 0
+    }
+
+    /// Lo que se ha hecho, archivo a archivo. En un ensayo, lo que se haría.
+    ///
+    /// Con un tope, porque la primera copia de un disco entero son cientos de
+    /// miles de archivos y no tiene sentido guardarlos todos en memoria para
+    /// enseñarlos en una lista que nadie va a leer hasta el final. Lo que
+    /// pasa del tope se cuenta en `changesOmitted`.
+    var changes: [Change] = []
+    var changesOmitted = 0
+    static let maxChanges = 3000
+
+    mutating func note(_ kind: Change.Kind, _ path: String, bytes: Int64 = 0) {
+        guard changes.count < Self.maxChanges else { changesOmitted += 1; return }
+        changes.append(Change(kind: kind, path: path, bytes: bytes))
+    }
+
+    mutating func note(_ nuevos: [Change]) {
+        for c in nuevos { note(c.kind, c.path, bytes: c.bytes) }
+    }
+
     var copied = 0            // archivos nuevos en el disco
     var updated = 0           // ya estaban, pero habían cambiado
     var retired = 0           // ya no están en el Mac
@@ -130,6 +159,8 @@ private final class MoveTally: @unchecked Sendable {
     private(set) var sinVerificar: [String] = []
     private(set) var renombrados: [String] = []
     private(set) var movidos = 0
+    /// Cuáles, y no sólo cuántos: es lo que se cuenta en el registro.
+    private(set) var movidosDetalle: [SyncReport.Change] = []
     private(set) var bytes: Int64 = 0
     private(set) var desconectado = false
 
@@ -212,6 +243,7 @@ private final class MoveTally: @unchecked Sendable {
         hechos += 1
         movidos += 1
         bytes += escritos
+        movidosDetalle.append(SyncReport.Change(kind: .moved, path: etiqueta, bytes: escritos))
         if let r = renombradoA { renombrados.append(L("%1$@ → %2$@", etiqueta, r)) }
     }
 }
@@ -350,12 +382,18 @@ final class SyncEngine: @unchecked Sendable {
         }
 
         if dryRun {
-            for (_, actions) in planes {
+            for (folder, actions) in planes {
                 for a in actions {
                     switch a {
-                    case .copy(_, _, _, let isNew): if isNew { report.copied += 1 } else { report.updated += 1 }
-                    case .move: report.moved += 1
-                    case .retire: report.retired += 1
+                    case .copy(let rel, let size, _, let isNew):
+                        if isNew { report.copied += 1 } else { report.updated += 1 }
+                        report.note(isNew ? .new : .updated, "\(folder.name)/\(rel)", bytes: size)
+                    case .move(let rel, let size, _, _):
+                        report.moved += 1
+                        report.note(.moved, "\(folder.name)/\(rel)", bytes: size)
+                    case .retire(let rel, _):
+                        report.retired += 1
+                        report.note(.retired, "\(folder.name)/\(rel)")
                     case .makeDir, .link: break
                     }
                 }
@@ -424,6 +462,7 @@ final class SyncEngine: @unchecked Sendable {
                         try fm.removeItem(at: victim)
                     }
                     report.retired += 1
+                    report.note(.retired, "\(folder.name)/\(rel)")
                 } catch {
                     // Una carpeta que no se puede retirar porque ya no está
                     // —se fue con su padre— no es un error.
@@ -478,6 +517,9 @@ final class SyncEngine: @unchecked Sendable {
         var copiados = 0, actualizados = 0
         var bytes: Int64 = 0
         var desconectado = false
+        // Se apunta aquí y no en el informe directamente porque esto lo
+        // rellenan cuatro hilos a la vez y en el orden que les toque.
+        var cambios: [SyncReport.Change] = []
 
         let hilos = min(Self.concurrentCopies, acciones.count)
         DispatchQueue.concurrentPerform(iterations: hilos) { _ in
@@ -541,7 +583,15 @@ final class SyncEngine: @unchecked Sendable {
                 if let v = seFue { desaparecidos.append(v) }
                 if let c = cambióAlVuelo { cambiados.append(c) }
                 bytes += bytesDeEste
-                if let nuevo = esNuevo { if nuevo { copiados += 1 } else { actualizados += 1 } }
+                if let nuevo = esNuevo {
+                    if nuevo { copiados += 1 } else { actualizados += 1 }
+                    cambios.append(SyncReport.Change(kind: nuevo ? .new : .updated,
+                                                     path: "\(folderName)/\(rel)", bytes: bytesDeEste))
+                } else if falloAlCopiar == nil, seFue == nil, !rel.isEmpty {
+                    // Un enlace simbólico recreado: no tiene tamaño, pero es
+                    // algo que aparece en el disco y hay que poder verlo.
+                    cambios.append(SyncReport.Change(kind: .new, path: "\(folderName)/\(rel)"))
+                }
                 let cuenta = hechos
                 cerrojo.unlock()
 
@@ -557,6 +607,9 @@ final class SyncEngine: @unchecked Sendable {
         }
 
         done = hechos
+        // Ordenadas: cuatro hilos las han ido dejando según acababan, y en el
+        // registro se leen mucho mejor como se ve el árbol de carpetas.
+        report.note(cambios.sorted { $0.path < $1.path })
         report.errors += errores
         report.vanished += desaparecidos
         report.changed += cambiados
@@ -623,6 +676,7 @@ final class SyncEngine: @unchecked Sendable {
         report.renamed += cuentas.get(\.renombrados)
         report.bytesWritten += cuentas.get(\.bytes)
         report.moved += cuentas.get(\.movidos)
+        report.note(cuentas.get(\.movidosDetalle).sorted { $0.path < $1.path })
         if cuentas.get(\.desconectado) { throw SyncError.disconnected }
     }
 

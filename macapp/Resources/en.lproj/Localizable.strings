@@ -172,3 +172,10 @@
 "no conectado" = "not connected";
 "sin carpetas todavía" = "no folders yet";
 "¿Quitar «%@» de Backup SSD?" = "Remove “%@” from Backup SSD?";
+
+// El detalle del registro
+"%1$@ · %2$@" = "%1$@ · %2$@";
+"Comparados %@: ninguno había cambiado." = "Compared %@: none had changed.";
+"Esto es lo que haría, sin tocar nada:" = "Here is what it would do, without touching anything:";
+"ensayo" = "dry run";
+"… y %@ más, que no caben aquí." = "…and %@ more that do not fit here.";
