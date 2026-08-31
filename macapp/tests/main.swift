@@ -316,6 +316,59 @@ test("El espacio libre se lee bien en cualquier disco montado") {
     }
 }
 
+// Git le pone la bandera «no me toques» (uchg, la de «Bloqueado» del Finder) a
+// todos los objetos de sus repositorios. `copyItem` se la copiaba al archivo
+// temporal, y entonces el temporal no se dejaba renombrar: cada .git se
+// quedaba fuera del backup y dejaba detrás un `.bssd-parcial` imborrable.
+test("Un archivo bloqueado se copia igual") {
+    let sb = Sandbox("bloqueado")
+    let f = sb.write("intocable.txt", "no me toques")
+    let libre = sb.write("normal.txt", "yo sí")
+    try? FileManager.default.setAttributes([.immutable: true], ofItemAtPath: f.path)
+    defer { try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: f.path) }
+    _ = libre
+
+    let r = run(sb, sb.config())
+    checkEq(r.errors.count, 0, "sin errores")
+    checkEq(r.copied, 2, "copia los dos")
+    checkEq(sb.read("datos/intocable.txt"), "no me toques", "y el bloqueado llega entero")
+
+    // Y no deja basura: un `.bssd-parcial` bloqueado en el disco no se podría
+    // ni borrar en la pasada siguiente.
+    let dentro = (try? FileManager.default.contentsOfDirectory(atPath: sb.disco.appendingPathComponent("datos").path)) ?? []
+    check(!dentro.contains { $0.hasSuffix(".bssd-parcial") }, "sin trozos a medias en el disco")
+
+    // La copia del backup no hereda el candado: si lo heredara, la siguiente
+    // pasada no podría ni actualizarla ni retirarla.
+    let copia = sb.disco.appendingPathComponent("datos/intocable.txt").path
+    let attrs = try? FileManager.default.attributesOfItem(atPath: copia)
+    checkEq(attrs?[.immutable] as? Bool ?? false, false, "y la copia se puede volver a tocar")
+}
+
+test("Un archivo bloqueado que cambia se actualiza, y si se borra se retira") {
+    let sb = Sandbox("bloqueado-2")
+    let f = sb.write("acta.txt", "versión 1")
+    try? FileManager.default.setAttributes([.immutable: true], ofItemAtPath: f.path)
+    _ = run(sb, sb.config())
+
+    // Segunda versión, otra vez bloqueada.
+    try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: f.path)
+    sb.write("acta.txt", "versión 2 mucho más larga que la primera")
+    try? FileManager.default.setAttributes([.immutable: true], ofItemAtPath: f.path)
+
+    let r2 = run(sb, sb.config())
+    checkEq(r2.errors.count, 0, "la actualización no da error")
+    checkEq(sb.read("datos/acta.txt"), "versión 2 mucho más larga que la primera", "y se sustituye")
+
+    // Y ahora se borra del Mac: hay que poder retirarla del disco.
+    try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: f.path)
+    try? FileManager.default.removeItem(at: f)
+    let r3 = run(sb, sb.config())
+    checkEq(r3.errors.count, 0, "la retirada tampoco da error")
+    checkEq(r3.retired, 1, "se retira")
+    check(!sb.exists("datos/acta.txt"), "y ya no está en el disco")
+}
+
 test("Lo que aparece en el disco por su cuenta se retira") {
     let sb = Sandbox("intruso")
     sb.write("mio.txt", "1")

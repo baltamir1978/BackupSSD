@@ -420,6 +420,7 @@ final class SyncEngine: @unchecked Sendable {
                         let to = retiradosDir.appendingPathComponent(folder.name).appendingPathComponent(rel)
                         try retire(victim, to: to)
                     } else {
+                        desbloquear(victim)
                         try fm.removeItem(at: victim)
                     }
                     report.retired += 1
@@ -1060,7 +1061,20 @@ final class SyncEngine: @unchecked Sendable {
             try? fm.setAttributes([.modificationDate: m], ofItemAtPath: tmp.path)
         }
 
+        // Un archivo con la bandera «no me toques» —`uchg`, la que pone el Finder
+        // con «Bloqueado»— no se puede ni renombrar ni sustituir, y `copyItem`
+        // se la copia al temporal junto con todo lo demás. Git se la pone a
+        // **todos** los objetos de sus repositorios, así que sin esto cada
+        // `.git` se quedaba fuera del backup, y encima dejaba detrás un
+        // `.bssd-parcial` que tampoco había forma de borrar en la pasada
+        // siguiente.
+        //
+        // Se le quita al temporal, que es una copia nuestra y no tiene por qué
+        // heredarla, y a lo que se vaya a sustituir. Al original del Mac no se
+        // le toca nada: esa bandera es suya.
+        desbloquear(tmp)
         if fm.fileExists(atPath: to.path) {
+            desbloquear(to)
             _ = try fm.replaceItemAt(to, withItemAt: tmp)
         } else {
             try fm.moveItem(at: tmp, to: to)
@@ -1165,10 +1179,16 @@ final class SyncEngine: @unchecked Sendable {
                     try? retire(victim.appendingPathComponent(hijo),
                                 to: to.appendingPathComponent(hijo))
                 }
+                desbloquear(victim)
                 try fm.removeItem(at: victim)     // ya vacía
                 return
             }
         }
+
+        // Lo mismo que al copiar: un archivo bloqueado no se deja mover. Aquí
+        // se trata de apartarlo dentro del propio disco de backup, así que la
+        // bandera sobra igual.
+        desbloquear(victim)
 
         var destino = to
         var n = 2
@@ -1242,6 +1262,18 @@ final class SyncEngine: @unchecked Sendable {
         // una ruta dentro de Mobile Documents, y la carpeta de arriba puede no
         // venir marcada.
         return url.resolvingSymlinksInPath().path.contains("/Mobile Documents/")
+    }
+
+    /// Le quita a un archivo del disco de backup las banderas que impiden
+    /// tocarlo (`uchg`, `uappnd` y sus equivalentes de sistema).
+    ///
+    /// Callada a propósito: en un sistema de archivos que no las tenga —exFAT,
+    /// sin ir más lejos— la llamada no hace nada, y ahí tampoco estorban.
+    private func desbloquear(_ url: URL) {
+        guard let attrs = try? fm.attributesOfItem(atPath: url.path),
+              (attrs[.immutable] as? Bool ?? false) || (attrs[.appendOnly] as? Bool ?? false)
+        else { return }
+        try? fm.setAttributes([.immutable: false, .appendOnly: false], ofItemAtPath: url.path)
     }
 
     /// Lo que queda libre en el disco, en bytes. `nil` si no hay forma de
