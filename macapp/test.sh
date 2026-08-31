@@ -9,6 +9,10 @@
 # Lo que sí necesita AppKit —VolumeWatcher y la interfaz— se queda fuera: eso
 # se prueba enchufando el disco de verdad.
 #
+# Companions.swift entra aunque hable con AppKit para buscar apps instaladas:
+# es donde viven las reglas que `Config` guarda por disco, y sin él la
+# configuración no compila. Las pruebas no ejecutan nada de él.
+#
 # Uso:  ./test.sh
 
 set -euo pipefail
@@ -20,7 +24,7 @@ echo "Compilando las pruebas…"
 swiftc \
     -swift-version 5 \
     -o tests/build/tests \
-    Sources/Config.swift Sources/History.swift Sources/Localization.swift Sources/SyncEngine.swift Sources/Volumes.swift tests/main.swift
+    Sources/Companions.swift Sources/Config.swift Sources/History.swift Sources/Localization.swift Sources/SyncEngine.swift Sources/Volumes.swift tests/main.swift
 
 echo
 ./tests/build/tests

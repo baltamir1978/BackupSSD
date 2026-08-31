@@ -164,6 +164,27 @@ struct DiskProfile: Codable, Identifiable {
     /// justamente lo que nadie espera al enchufar un disco.
     var skipUndownloadediCloud: Bool = true
 
+    /// Qué hacer con Fotosync e Itusync antes de copiar, por app. La clave es
+    /// el `Companion.id` («fotosync», «itusync»); ver `Companions.swift`.
+    ///
+    /// Un diccionario y no dos campos con nombre: así añadir una tercera app
+    /// compañera no toca ni la configuración guardada ni su lectura, y una
+    /// clave desconocida —de una versión posterior, o de una app que se ha
+    /// desinstalado— se ignora sola en vez de estorbar.
+    var companions: [String: CompanionRule] = [:]
+
+    /// La regla de una app para este disco, con la de fábrica si no se ha
+    /// tocado nunca.
+    ///
+    /// El valor por omisión actualiza sin preguntar, y no es un descuido:
+    /// exportar es añadir hard links a archivos que ya están en el Mac —no
+    /// mueve, no borra y no ocupa espacio—, y el caso que importa es
+    /// justamente el que nadie configura, que es enchufar el disco y llevarse
+    /// la fototeca de hace tres semanas creyendo que va la de hoy.
+    func rule(for companion: Companion) -> CompanionRule {
+        companions[companion.id] ?? CompanionRule()
+    }
+
     // MARK: Persistencia
 
     /// Igual que en Fotosync e Itusync: cada clave se lee por separado y cae a
@@ -178,6 +199,7 @@ struct DiskProfile: Codable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id, volumeUUID, volumeName, rootFolder, folders, autoSyncOnMount
         case keepRemoved, removedRetentionDays, excludes, skipUndownloadediCloud
+        case companions
     }
 
     init() {}
@@ -197,6 +219,7 @@ struct DiskProfile: Codable, Identifiable {
         removedRetentionDays = try c.decodeIfPresent(Int.self, forKey: .removedRetentionDays) ?? base.removedRetentionDays
         excludes = try c.decodeIfPresent([String].self, forKey: .excludes) ?? base.excludes
         skipUndownloadediCloud = try c.decodeIfPresent(Bool.self, forKey: .skipUndownloadediCloud) ?? base.skipUndownloadediCloud
+        companions = try c.decodeIfPresent([String: CompanionRule].self, forKey: .companions) ?? base.companions
     }
 
     // MARK: Quién cuelga de quién

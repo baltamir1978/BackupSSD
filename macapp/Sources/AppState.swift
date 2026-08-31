@@ -13,13 +13,16 @@ import Foundation
 enum SyncStatus: Equatable {
     case sinDisco
     case listo(volumen: String)
+    /// Una app compañera está poniendo al día su carpeta antes de copiar.
+    /// Ver `Companions.swift`.
+    case actualizando(app: String)
     case comparando
     case copiando(hechos: Int, total: Int, actual: String)
     case fallo(String)
 
     var esTrabajando: Bool {
         switch self {
-        case .comparando, .copiando: return true
+        case .actualizando, .comparando, .copiando: return true
         default: return false
         }
     }
@@ -47,13 +50,23 @@ final class AppState: ObservableObject {
     @Published private(set) var queued: [UUID] = []
     /// Los que se están expulsando.
     @Published private(set) var ejecting: Set<UUID> = []
+    /// Lo que se sabe de Fotosync e Itusync para el disco elegido: si están,
+    /// si su carpeta entra en este backup y cuándo exportaron por última vez.
+    /// Ver `Companions.swift`.
+    @Published private(set) var companions: [CompanionState] = []
     /// El disco que se está mirando en la ventana y en los ajustes. Es uno solo
     /// para las dos, porque tener abierta la ventana con un disco y los ajustes
     /// con otro es la mejor forma de cambiarle las carpetas al que no era.
-    @Published var selectedDiskID: UUID?
+    @Published var selectedDiskID: UUID? {
+        // Las carpetas son de cada disco, y con ellas cambia si la carpeta de
+        // Fotosync o la de Itusync entra en el backup o se queda fuera.
+        didSet { if oldValue != selectedDiskID { refreshCompanions() } }
+    }
 
     private let watcher = VolumeWatcher()
     private var engine: SyncEngine?
+    /// La app compañera que está corriendo ahora mismo, para poder pararla.
+    private var companionJob: CompanionJob?
     private let queue = DispatchQueue(label: "es.backupssd.motor", qos: .utility)
     /// Aparte de la del motor, que es serial: mirar los discos mientras se
     /// está copiando tendría que esperar a que acabase la copia entera.
@@ -83,6 +96,7 @@ final class AppState: ObservableObject {
         watcher.start()
         watcher.announceAlreadyMounted()
         reloadVolumes()
+        refreshCompanions()
     }
 
     // MARK: Discos
@@ -259,7 +273,47 @@ final class AppState: ObservableObject {
             DispatchQueue.main.async { self?.append(log: linea) }
         }
 
+        // Las apps que rellenan carpetas del backup —Fotosync, Itusync— se
+        // ejecutan **antes** de comparar, y sólo en una copia de verdad: un
+        // ensayo no puede tener el efecto secundario de reescribir media
+        // fototeca. Ver `Companions.swift`.
+        let trabajo = CompanionJob()
+        companionJob = trabajo
+
         queue.async { [weak self] in
+            if !dryRun {
+                let sigue = actualizarCompaneras(
+                    disk: cfg, job: trabajo,
+                    onStatus: { c in
+                        DispatchQueue.main.async {
+                            guard let self, self.working == id else { return }
+                            self.statuses[id] = .actualizando(app: c.name)
+                        }
+                    },
+                    onLog: { lineas in
+                        DispatchQueue.main.async { self?.append(log: lineas) }
+                    })
+                guard sigue else {
+                    // Se ha parado durante la actualización: no se sigue con la
+                    // copia. Quien pulsa «Detener» quiere que pare todo, no que
+                    // empiece ahora lo gordo.
+                    DispatchQueue.main.async {
+                        guard let self else { return }
+                        self.companionJob = nil
+                        var parcial = SyncReport()
+                        parcial.cancelled = true
+                        self.finish(report: parcial, disk: id, volume: nombre)
+                        self.engine = nil
+                    }
+                    return
+                }
+                DispatchQueue.main.async {
+                    guard let self, self.working == id else { return }
+                    self.companionJob = nil
+                    self.statuses[id] = .comparando
+                }
+            }
+
             let resultado: Result<SyncReport, Error>
             do { resultado = .success(try motor.run(config: cfg, root: root, dryRun: dryRun)) }
             catch { resultado = .failure(error) }
@@ -290,6 +344,10 @@ final class AppState: ObservableObject {
     /// el siguiente de la cola.
     private func terminar(_ id: UUID) {
         working = nil
+        companionJob = nil
+        // Las compañeras acaban de exportar: sin esto la ficha seguiría
+        // diciendo «hace 8 días» justo después de haberlas ejecutado.
+        refreshCompanions()
         ejectIfPending(id)
         arrancarSiguiente()
     }
@@ -301,7 +359,12 @@ final class AppState: ObservableObject {
                volume: volume(of: disk)?.name ?? disk.volumeName)
     }
 
-    func cancel() { engine?.cancel() }
+    /// Para lo que haya en marcha: la copia, o la app compañera que la esté
+    /// precediendo. Las dos cosas son «esta sincronización» para quien mira.
+    func cancel() {
+        engine?.cancel()
+        companionJob?.cancel()
+    }
 
     /// Saca de la cola a uno que todavía no ha empezado.
     func dequeue(_ disk: DiskProfile) {
@@ -478,11 +541,71 @@ final class AppState: ObservableObject {
         }
     }
 
+    // MARK: Apps compañeras
+
+    /// Vuelve a mirar qué hay de Fotosync e Itusync **para el disco elegido**.
+    ///
+    /// En una cola de fondo porque pregunta al sistema por apps instaladas y
+    /// lee archivos, y en el hilo principal eso se nota al abrir los ajustes.
+    func refreshCompanions() {
+        let disco = selectedDisk
+        discosQueue.async { [weak self] in
+            let estados = CompanionState.detectAll(disk: disco)
+            DispatchQueue.main.async { self?.companions = estados }
+        }
+    }
+
+    /// Las que están instaladas, exportan a una carpeta de este backup y se
+    /// han quedado atrás. Es lo que la ventana enseña como aviso.
+    func staleCompanions(of disk: DiskProfile) -> [CompanionState] {
+        companions.filter { st in
+            let regla = disk.rule(for: st.companion)
+            return regla.mode != .off && st.relevant && st.stale(regla)
+        }
+    }
+
+    /// Ejecuta una app compañera ahora mismo, a mano.
+    ///
+    /// Es el botón del aviso, y también la salida para quien la tiene en modo
+    /// «avisar»: exporta y deja la carpeta lista, sin sincronizar nada.
+    func runCompanion(_ st: CompanionState) {
+        guard let app = st.appURL, companionJob == nil, working == nil else { return }
+        let c = st.companion
+        let trabajo = CompanionJob()
+        companionJob = trabajo
+        let id = selectedDisk?.id
+        if let id { statuses[id] = .actualizando(app: c.name) }
+        append(log: L("Actualizando con %@…", c.name))
+
+        queue.async { [weak self] in
+            let r = trabajo.run(c, app: app) { lineas in
+                DispatchQueue.main.async { self?.append(log: lineas) }
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.companionJob = nil
+                if let id { self.statuses[id] = nil }
+                self.append(log: r.ok
+                            ? L("%1$@ terminó: %2$@", c.name, r.message.isEmpty ? L("sin cambios") : r.message)
+                            : "⚠︎ " + r.message)
+                self.refreshCompanions()
+            }
+        }
+    }
+
+    /// Cambiarle la regla a una app para el disco elegido.
+    func setRule(_ rule: CompanionRule, for c: Companion, on disk: UUID) {
+        config[disk]?.companions[c.id] = rule
+    }
+
     // MARK: Cosas que pide la interfaz
 
     var lastSync: HistoryEntry? { history.first }
 
     /// El disco que se está mirando, o el primero que haya.
+    ///
+    /// Al cambiarlo hay que volver a mirar las compañeras: si su carpeta entra
+    /// o no en el backup es cosa de las carpetas de **este** disco.
     var selectedDisk: DiskProfile? {
         if let id = selectedDiskID, let d = config[id] { return d }
         return config.disks.first

@@ -120,6 +120,7 @@ extension AppState {
             guard let d = config.disks.first, !d.volumeName.isEmpty else { return L("Sin disco elegido") }
             return L("%@ no está conectado", d.volumeName)
         case .listo(let v):  return L("%@ conectado", v)
+        case .actualizando(let app): return L("Actualizando con %@…", app)
         case .comparando:    return L("Comparando…")
         case .copiando(let hechos, let total, _):
             return L("Copiando…") + " " + L("%1$@ de %2$@", "\(hechos)", "\(total)")
@@ -130,6 +131,10 @@ extension AppState {
     var menuIcon: String {
         switch status {
         case .copiando, .comparando: return "arrow.triangle.2.circlepath"
+        // Mientras exporta Fotosync o Itusync no se está copiando todavía, y
+        // decirlo con otro símbolo evita que parezca que el disco lleva media
+        // hora escribiendo cuando en realidad se está preparando lo que copiar.
+        case .actualizando:          return "photo.badge.arrow.down"
         case .fallo:                 return "externaldrive.badge.exclamationmark"
         case .listo:                 return "externaldrive.fill.badge.checkmark"
         case .sinDisco:              return "externaldrive"

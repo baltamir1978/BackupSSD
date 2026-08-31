@@ -179,3 +179,45 @@
 "Esto es lo que haría, sin tocar nada:" = "Here is what it would do, without touching anything:";
 "ensayo" = "dry run";
 "… y %@ más, que no caben aquí." = "…and %@ more that do not fit here.";
+
+/* Las apps que preparan carpetas antes de copiar: Fotosync e Itusync.
+   Ver Companions.swift. */
+"%1$@ está instalada pero no se pudo ejecutar: no hay binario en %2$@" = "%1$@ is installed but could not be run: there is no binary at %2$@";
+"%1$@ no pudo exportar: %2$@" = "%1$@ could not export: %2$@";
+"%1$@ terminó: %2$@" = "%1$@ finished: %2$@";
+"%@ está poniendo al día su carpeta; la copia empieza en cuanto termine." = "%@ is bringing its folder up to date; the copy starts as soon as it finishes.";
+"%@ la pondrá al día antes de la próxima copia." = "%@ will bring it up to date before the next copy.";
+"%@ se detuvo a medias." = "%@ stopped halfway.";
+"Actualizando con %@ antes de copiar…" = "Updating with %@ before copying…";
+"Actualizando con %@…" = "Updating with %@…";
+"Actualizando «%1$@» con %2$@ antes de copiar (última vez: %3$@)…" = "Updating “%1$@” with %2$@ before copying (last time: %3$@)…";
+"Actualizar" = "Update";
+"Actualizar ahora" = "Update now";
+"Actualizar como mucho" = "Update at most";
+"Actualizar con %@" = "Update with %@";
+"Al conectar el disco" = "When the disk is connected";
+"Antes de copiar" = "Before copying";
+"Antes de copiar, para que el disco se lleve lo de hoy." = "Before copying, so the disk takes what there is today.";
+"Avisar" = "Notify";
+"Detenido." = "Stopped.";
+"Estas apps exportan con enlaces duros: no copian los archivos otra vez ni ocupan espacio en el Mac. Lo que hacen es dejar la carpeta al día para que el disco no se lleve la exportación de la semana pasada." = "These apps export with hard links: they do not copy the files again and take no extra space on the Mac. What they do is leave the folder up to date, so the disk does not take last week’s export.";
+"Está instalada, pero todavía no tiene carpeta de destino. Ábrela y elige una." = "It is installed, but it has no destination folder yet. Open it and choose one.";
+"Exporta %1$@ a «%2$@», que sí entra en la copia de este disco." = "It exports %1$@ to “%2$@”, which is part of this disk’s copy.";
+"Exporta a %@, que no está dentro de las carpetas de este disco. Añádela en la ventana principal si quieres que entre en la copia." = "It exports to %@, which is not inside this disk’s folders. Add it in the main window if you want it in the copy.";
+"Hasta que la actualices, el disco se llevará lo de entonces." = "Until you update it, the disk will take what was there then.";
+"La última vez terminó con un problema." = "Last time it ended with a problem.";
+"No está instalada. Exporta %@ a carpetas, y en cuanto esté aquí se podrá poner al día sola antes de cada copia." = "It is not installed. It exports %@ to folders, and as soon as it is here it can bring itself up to date before every copy.";
+"No hacer nada" = "Do nothing";
+"No se pudo ejecutar %1$@: %2$@" = "%1$@ could not be run: %2$@";
+"Se ejecutan **antes** de la copia y sólo en una sincronización de verdad: un ensayo nunca las lanza." = "They run **before** the copy, and only in a real sync: a dry run never launches them.";
+"cada %@" = "every %@";
+"cada día" = "every day";
+"cada semana" = "every week";
+"la fototeca de Fotos" = "the Photos library";
+"las listas de Music" = "the Music playlists";
+"nunca" = "never";
+"siempre" = "always";
+"terminó con código %ld" = "it exited with code %ld";
+"«%1$@» se exportó por última vez %2$@." = "“%1$@” was last exported %2$@.";
+"· pendiente" = "· pending";
+"Última exportación: %@" = "Last export: %@";

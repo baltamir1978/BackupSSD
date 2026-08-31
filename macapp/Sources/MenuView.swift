@@ -178,6 +178,7 @@ struct MenuView: View {
     /// En dos palabras, qué le pasa a este disco: es lo que sustituye al
     /// «Sincronizar ahora» a secas cuando hay más de uno.
     private func pieDe(_ d: DiskProfile) -> String {
+        if case .actualizando(let app) = state.status(of: d) { return L("Actualizando con %@…", app) }
         if state.working == d.id { return L("Copiando…") }
         if state.queued.contains(d.id) { return L("En espera") }
         switch state.status(of: d) {
@@ -219,6 +220,7 @@ struct MenuView: View {
             guard let d = enPantalla, !d.volumeName.isEmpty else { return L("Sin disco elegido") }
             return L("%@ no está conectado", d.volumeName)
         case .listo(let v):   return L("%@ conectado", v)
+        case .actualizando(let app): return L("Actualizando con %@…", app)
         case .comparando:     return L("Comparando…")
         case .copiando:
             guard let d = enPantalla, !d.volumeName.isEmpty else { return L("Copiando…") }
@@ -238,6 +240,8 @@ struct MenuView: View {
             let problemas = state.config.problems(of: d)
             if !problemas.isEmpty { return problemas.first }
             return d.autoSyncOnMount ? L("Se sincroniza solo al conectarlo") : nil
+        case .actualizando:
+            return L("Antes de copiar, para que el disco se lleve lo de hoy.")
         case .fallo(let m): return m
         default: return nil
         }
@@ -246,7 +250,7 @@ struct MenuView: View {
     private var colorDelEstado: Color {
         switch state.status {
         case .listo:                 return .green
-        case .comparando, .copiando: return .blue
+        case .actualizando, .comparando, .copiando: return .blue
         case .fallo:                 return .red
         case .sinDisco:              return .secondary
         }

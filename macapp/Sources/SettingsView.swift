@@ -16,7 +16,7 @@ struct SettingsView: View {
     /// —elegir el disco— quedaba en una pestaña que nadie había pulsado.
     @State private var pestana = Pestana.disco
 
-    private enum Pestana: Hashable { case disco, copia, excluir, general }
+    private enum Pestana: Hashable { case disco, copia, apps, excluir, general }
 
     var body: some View {
         TabView(selection: $pestana) {
@@ -26,6 +26,9 @@ struct SettingsView: View {
             CopiaTab(state: state)
                 .tabItem { Label("Copia", systemImage: "arrow.triangle.2.circlepath") }
                 .tag(Pestana.copia)
+            CompanerasTab(state: state)
+                .tabItem { Label("Antes de copiar", systemImage: "clock.arrow.circlepath") }
+                .tag(Pestana.apps)
             ExclusionesTab(state: state)
                 .tabItem { Label("Excluir", systemImage: "nosign") }
                 .tag(Pestana.excluir)
@@ -33,7 +36,7 @@ struct SettingsView: View {
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(Pestana.general)
         }
-        .frame(width: 480, height: 440)
+        .frame(width: 520, height: 470)
     }
 }
 
@@ -71,9 +74,8 @@ private struct CabeceraDeDisco: View {
 private struct SinDiscos: View {
     var body: some View {
         VStack(spacing: 8) {
-            Image(systemName: "externaldrive.badge.plus")
-                .font(.system(size: 32))
-                .foregroundStyle(.tertiary)
+            DiscoExterno(estado: .sinDisco, size: 64, animado: false)
+                .padding(.bottom, 4)
             Text("Añade un disco en la pestaña «Discos».")
                 .foregroundStyle(.secondary)
             Text("Cada disco lleva sus propias carpetas y sus propios ajustes.")
@@ -98,11 +100,15 @@ private struct DiscosTab: View {
     @ObservedObject var state: AppState
 
     /// Conectados y todavía sin configurar. Los externos primero: son los que
-    /// alguien querría de destino. Los internos se enseñan también, por si se
-    /// copia a otra partición del Mac.
+    /// alguien querría de destino. Las demás particiones internas se enseñan
+    /// también, por si la copia va a otra de ellas.
+    ///
+    /// El disco de arranque no sale nunca. Copiar el Mac dentro del propio Mac
+    /// no es una copia de seguridad —un fallo del disco se lleva las dos a la
+    /// vez—, y ofrecerlo aquí sólo servía para poder elegirlo por error.
     private var porAnadir: [VolumeInfo] {
         let ya = Set(state.config.disks.map(\.volumeUUID))
-        let libres = state.volumes.filter { !ya.contains($0.uuid) }
+        let libres = state.volumes.filter { !ya.contains($0.uuid) && !$0.isBoot }
         return libres.filter(\.looksLikeBackupDisk) + libres.filter { !$0.looksLikeBackupDisk }
     }
 
@@ -133,8 +139,15 @@ private struct DiscosTab: View {
                 } else {
                     ForEach(porAnadir) { v in
                         HStack(spacing: 10) {
-                            Image(systemName: v.isInternal ? "internaldrive" : "externaldrive")
-                                .foregroundStyle(.secondary)
+                            if v.isInternal {
+                                Image(systemName: "internaldrive")
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 30)
+                            } else {
+                                // Sin luz de estado: todavía no es un disco de
+                                // la casa, sólo uno que está enchufado.
+                                DiscoExterno(estado: .sinDisco, size: 30, animado: false)
+                            }
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(v.name)
                                 Text(v.uuid)
@@ -180,10 +193,10 @@ private struct FilaDeDisco: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: state.isConnected(disk) ? "externaldrive.fill" : "externaldrive")
-                .foregroundStyle(elegido ? Color.accentColor : .secondary)
+            DiscoExterno(estado: EstadoDelDisco(state.status(of: disk)), size: 30, animado: false)
             VStack(alignment: .leading, spacing: 1) {
                 Text(disk.volumeName.isEmpty ? L("Disco sin nombre") : disk.volumeName)
+                    .fontWeight(elegido ? .semibold : .regular)
                 Text(subtitulo)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
@@ -398,5 +411,132 @@ private struct GeneralTab: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+// MARK: - Antes de copiar
+
+/// Fotosync e Itusync: las apps que rellenan carpetas del backup.
+///
+/// La pestaña existe porque el problema que resuelve no se ve. Las carpetas
+/// «Fotos» y «Musica» son carpetas normales y el backup se las lleva sin
+/// quejarse; lo que no se nota es que dentro está la exportación de hace tres
+/// semanas. Aquí se dice cada cuánto ponerlas al día antes de copiar.
+private struct CompanerasTab: View {
+    @ObservedObject var state: AppState
+
+    var body: some View {
+        if let d = state.selectedDisk {
+            Form {
+                Section { CabeceraDeDisco(state: state) }
+
+                ForEach(state.companions) { st in
+                    FichaDeCompanera(state: state, estado: st, disk: d)
+                }
+
+                Section {
+                    Text("Estas apps exportan con enlaces duros: no copian los archivos otra vez ni ocupan espacio en el Mac. Lo que hacen es dejar la carpeta al día para que el disco no se lleve la exportación de la semana pasada.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text("Se ejecutan **antes** de la copia y sólo en una sincronización de verdad: un ensayo nunca las lanza.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .formStyle(.grouped)
+            .onAppear { state.refreshCompanions() }
+        } else {
+            SinDiscos()
+        }
+    }
+}
+
+private struct FichaDeCompanera: View {
+    @ObservedObject var state: AppState
+    let estado: CompanionState
+    let disk: DiskProfile
+
+    private var regla: CompanionRule { disk.rule(for: estado.companion) }
+
+    var body: some View {
+        Section {
+            if !estado.installed {
+                Text(L("No está instalada. Exporta %@ a carpetas, y en cuanto esté aquí se podrá poner al día sola antes de cada copia.",
+                       estado.companion.what))
+                    .font(.callout).foregroundStyle(.secondary)
+            } else if estado.destination == nil {
+                Text("Está instalada, pero todavía no tiene carpeta de destino. Ábrela y elige una.")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else if !estado.inScope {
+                // Ni se ofrece la opción: ejecutarla no cambiaría nada de lo
+                // que este disco se lleva.
+                Text(L("Exporta a %@, que no está dentro de las carpetas de este disco. Añádela en la ventana principal si quieres que entre en la copia.",
+                       acortar(estado.destination ?? "")))
+                    .font(.callout).foregroundStyle(.secondary)
+            } else {
+                Picker("Al conectar el disco", selection: modo) {
+                    ForEach(CompanionMode.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                if regla.mode == .auto {
+                    Picker("Actualizar como mucho", selection: intervalo) {
+                        ForEach(CompanionRule.intervals, id: \.self) { h in
+                            Text(CompanionRule.intervalLabel(h)).tag(h)
+                        }
+                    }
+                }
+                HStack {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(L("Última exportación: %@", estado.lastRunText))
+                        if !estado.lastOK {
+                            Text("La última vez terminó con un problema.")
+                                .font(.caption).foregroundStyle(.orange)
+                        } else if !estado.lastSummary.isEmpty {
+                            Text(estado.lastSummary)
+                                .font(.caption).foregroundStyle(.secondary)
+                                .lineLimit(1).truncationMode(.tail)
+                        }
+                    }
+                    Spacer()
+                    Button("Actualizar ahora") { state.runCompanion(estado) }
+                        .controlSize(.small)
+                        .disabled(state.status.esTrabajando)
+                }
+            }
+        } header: {
+            HStack(spacing: 6) {
+                Text(estado.companion.name)
+                if estado.relevant, estado.stale(regla), regla.mode != .off {
+                    Text("· pendiente")
+                        .foregroundStyle(.orange)
+                }
+            }
+        } footer: {
+            if estado.relevant, let f = estado.folder {
+                Text(L("Exporta %1$@ a «%2$@», que sí entra en la copia de este disco.",
+                       estado.companion.what, f.name))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var modo: Binding<CompanionMode> {
+        Binding(
+            get: { regla.mode },
+            set: { nuevo in
+                var r = regla; r.mode = nuevo
+                state.setRule(r, for: estado.companion, on: disk.id)
+            })
+    }
+
+    private var intervalo: Binding<Int> {
+        Binding(
+            get: { regla.maxAgeHours },
+            set: { nuevo in
+                var r = regla; r.maxAgeHours = nuevo
+                state.setRule(r, for: estado.companion, on: disk.id)
+            })
+    }
+
+    private func acortar(_ ruta: String) -> String {
+        let casa = NSHomeDirectory()
+        return ruta.hasPrefix(casa) ? "~" + ruta.dropFirst(casa.count) : ruta
     }
 }

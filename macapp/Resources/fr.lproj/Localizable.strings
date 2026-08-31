@@ -180,3 +180,45 @@
 "Esto es lo que haría, sin tocar nada:" = "Voici ce qui serait fait, sans rien toucher :";
 "ensayo" = "essai";
 "… y %@ más, que no caben aquí." = "… et %@ de plus, qui ne tiennent pas ici.";
+
+/* Las apps que preparan carpetas antes de copiar: Fotosync e Itusync.
+   Ver Companions.swift. */
+"%1$@ está instalada pero no se pudo ejecutar: no hay binario en %2$@" = "%1$@ est installée mais n’a pas pu être lancée : aucun binaire dans %2$@";
+"%1$@ no pudo exportar: %2$@" = "%1$@ n’a pas pu exporter : %2$@";
+"%1$@ terminó: %2$@" = "%1$@ a terminé : %2$@";
+"%@ está poniendo al día su carpeta; la copia empieza en cuanto termine." = "%@ met son dossier à jour ; la copie commence dès qu’elle a fini.";
+"%@ la pondrá al día antes de la próxima copia." = "%@ le mettra à jour avant la prochaine copie.";
+"%@ se detuvo a medias." = "%@ s’est arrêtée en cours de route.";
+"Actualizando con %@ antes de copiar…" = "Mise à jour avec %@ avant la copie…";
+"Actualizando con %@…" = "Mise à jour avec %@…";
+"Actualizando «%1$@» con %2$@ antes de copiar (última vez: %3$@)…" = "Mise à jour de « %1$@ » avec %2$@ avant la copie (dernière fois : %3$@)…";
+"Actualizar" = "Mettre à jour";
+"Actualizar ahora" = "Mettre à jour maintenant";
+"Actualizar como mucho" = "Mettre à jour au plus";
+"Actualizar con %@" = "Mettre à jour avec %@";
+"Al conectar el disco" = "À la connexion du disque";
+"Antes de copiar" = "Avant la copie";
+"Antes de copiar, para que el disco se lleve lo de hoy." = "Avant la copie, pour que le disque emporte ce qu’il y a aujourd’hui.";
+"Avisar" = "Prévenir";
+"Detenido." = "Arrêté.";
+"Estas apps exportan con enlaces duros: no copian los archivos otra vez ni ocupan espacio en el Mac. Lo que hacen es dejar la carpeta al día para que el disco no se lleve la exportación de la semana pasada." = "Ces apps exportent avec des liens physiques : elles ne recopient pas les fichiers et ne prennent aucune place sur le Mac. Elles laissent le dossier à jour, pour que le disque n’emporte pas l’export de la semaine dernière.";
+"Está instalada, pero todavía no tiene carpeta de destino. Ábrela y elige una." = "Elle est installée, mais n’a pas encore de dossier de destination. Ouvre-la et choisis-en un.";
+"Exporta %1$@ a «%2$@», que sí entra en la copia de este disco." = "Elle exporte %1$@ vers « %2$@ », qui fait bien partie de la copie de ce disque.";
+"Exporta a %@, que no está dentro de las carpetas de este disco. Añádela en la ventana principal si quieres que entre en la copia." = "Elle exporte vers %@, qui n’est pas dans les dossiers de ce disque. Ajoute-le dans la fenêtre principale si tu veux qu’il entre dans la copie.";
+"Hasta que la actualices, el disco se llevará lo de entonces." = "Tant que tu ne la mets pas à jour, le disque emportera ce qu’il y avait alors.";
+"La última vez terminó con un problema." = "La dernière fois s’est terminée par un problème.";
+"No está instalada. Exporta %@ a carpetas, y en cuanto esté aquí se podrá poner al día sola antes de cada copia." = "Elle n’est pas installée. Elle exporte %@ vers des dossiers, et dès qu’elle sera là, elle pourra se mettre à jour toute seule avant chaque copie.";
+"No hacer nada" = "Ne rien faire";
+"No se pudo ejecutar %1$@: %2$@" = "Impossible de lancer %1$@ : %2$@";
+"Se ejecutan **antes** de la copia y sólo en una sincronización de verdad: un ensayo nunca las lanza." = "Elles s’exécutent **avant** la copie, et seulement lors d’une vraie synchronisation : un essai ne les lance jamais.";
+"cada %@" = "tous les %@";
+"cada día" = "chaque jour";
+"cada semana" = "chaque semaine";
+"la fototeca de Fotos" = "la photothèque de Photos";
+"las listas de Music" = "les listes de lecture de Music";
+"nunca" = "jamais";
+"siempre" = "toujours";
+"terminó con código %ld" = "s’est terminée avec le code %ld";
+"«%1$@» se exportó por última vez %2$@." = "« %1$@ » a été exporté pour la dernière fois %2$@.";
+"· pendiente" = "· en attente";
+"Última exportación: %@" = "Dernier export : %@";

@@ -18,11 +18,16 @@ struct VolumeInfo: Identifiable, Hashable {
     var name: String
     var isInternal: Bool
     var isRemovable: Bool
+    /// El volumen de arranque: el disco donde vive macOS. Nunca es un destino
+    /// —copiar el Mac dentro del propio Mac no es una copia de seguridad—, así
+    /// que no se ofrece nunca para añadir.
+    var isBoot: Bool = false
 
     var id: String { uuid }
 
-    /// Los que tiene sentido ofrecer como destino: primero los externos.
-    var looksLikeBackupDisk: Bool { !isInternal || isRemovable }
+    /// Los que tiene sentido ofrecer como destino: primero los externos, y
+    /// nunca el de arranque.
+    var looksLikeBackupDisk: Bool { !isBoot && (!isInternal || isRemovable) }
 }
 
 enum Volumes {
@@ -53,7 +58,12 @@ enum Volumes {
             uuid: uuid,
             name: v.volumeName ?? url.lastPathComponent,
             isInternal: v.volumeIsInternal ?? false,
-            isRemovable: (v.volumeIsRemovable ?? false) || (v.volumeIsEjectable ?? false)
+            isRemovable: (v.volumeIsRemovable ?? false) || (v.volumeIsEjectable ?? false),
+            // Se compara la ruta ya estandarizada: el volumen de arranque se
+            // monta en «/», y el resto cuelga de /Volumes. En un Mac con
+            // varias particiones internas, ésta es la única que hay que
+            // esconder; las demás siguen valiendo como destino.
+            isBoot: url.standardizedFileURL.path == "/"
         )
     }
 

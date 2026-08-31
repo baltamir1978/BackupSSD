@@ -104,6 +104,45 @@ explica lo que hay que tener preparado.
 La primera vez macOS pedirá permiso para leer el Escritorio, los Documentos y
 las Descargas. Hay que concederlo o no podrá copiarlos.
 
+## Antes de copiar: Fotosync e Itusync
+
+[Fotosync](https://github.com/baltamir1978/Fotosync) e [Itusync](https://github.com/baltamir1978/Itusync)
+sacan la fototeca de Fotos y las listas de Music a carpetas normales, con hard
+links. Si esas carpetas —`~/Pictures/Fotos`, `~/Music/Musica`— están entre las
+que se copian, hay un problema que no se ve: el backup se lleva **la
+exportación de la última vez que se abrió aquella app**, que puede ser de hace
+tres semanas. El disco parece al día y le faltan las fotos del mes.
+
+Backup SSD las detecta y, antes de copiar, las pone al día:
+
+- Mira si están instaladas, a qué carpeta exportan y si esa carpeta cae dentro
+  de lo que se copia a **este** disco. Si no, no ofrece nada.
+- Lee cuándo exportaron por última vez, de
+  `~/.config/fotosync/last-run.json` y `~/.config/itusync/last-run.json`.
+- Si se ha pasado del intervalo elegido, ejecuta la app y espera a que termine.
+  Después empieza la copia.
+
+En **Ajustes → Antes de copiar**, cada app tiene su modo —*Actualizar*,
+*Avisar* o *No hacer nada*— y su intervalo: siempre, cada 6 o 12 horas, cada
+día, cada 3 días o cada semana. Va por disco, porque las carpetas son de cada
+disco: el SSD que no se lleva las fotos no tiene por qué ponerse a exportar la
+fototeca. De fábrica, *Actualizar* cada día.
+
+Dos cosas que conviene saber:
+
+- **Se ejecuta la app, no la herramienta que hay debajo.** Leer la fototeca
+  exige Acceso completo al disco y leer la biblioteca de Music exige el permiso
+  de Multimedia; macOS los concede a una identidad de firma, y los tienen ellas,
+  no Backup SSD. Por eso cada una entiende `--export-now`, hace su trabajo sin
+  abrir ventana y deja el sello. Lo que sale por su salida estándar acaba en el
+  registro de aquí.
+- **Nunca limpian.** Exportar es añadir hard links a archivos que ya están en
+  el Mac: no mueve, no borra y no ocupa espacio. Borrar del destino lo que
+  sobra sigue siendo cosa de abrir la app y pedirlo, con su ensayo delante.
+
+Un ensayo no las lanza nunca, y si detienes la sincronización mientras están
+exportando, se para todo: no empieza la copia después.
+
 ## La configuración
 
 Vive en `~/.config/backup-ssd/config.json`, no en `UserDefaults`, a propósito:

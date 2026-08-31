@@ -1102,6 +1102,84 @@ test("El historial se vuelve a leer tal y como se guardó") {
           "y la fecha, que es lo que se rompía")
 }
 
+// MARK: - Las apps que preparan carpetas
+
+// Si esto se equivoca, o se ejecuta Fotosync para un disco que no se lleva las
+// fotos —minutos de trabajo para nada—, o no se ejecuta para el que sí y el
+// backup se lleva la exportación vieja sin decir nada.
+test("Se reconoce la carpeta del backup que contiene el destino de la app") {
+    var d = DiskProfile()
+    d.folders = [
+        SyncFolder(source: "/Users/x/Documents", name: "Documents"),
+        SyncFolder(source: "/Users/x/Pictures/Fotos", name: "Fotos"),
+        SyncFolder(source: "/Users/x/Movies", name: "Movies", enabled: false),
+    ]
+
+    checkEq(CompanionState.folder(containing: "/Users/x/Pictures/Fotos", in: d)?.name,
+            "Fotos", "el destino que es la carpeta misma")
+    checkEq(CompanionState.folder(containing: "/Users/x/Documents/exportado", in: d)?.name,
+            "Documents", "y el que cuelga de una de ellas")
+    check(CompanionState.folder(containing: "/Users/x/Pictures/Otras", in: d) == nil,
+          "una carpeta de fuera no cuenta")
+    // El prefijo suelto es el error clásico: «/Users/x/Pictures/Fotos-viejas»
+    // empieza igual que «/Users/x/Pictures/Fotos» y no está dentro.
+    check(CompanionState.folder(containing: "/Users/x/Pictures/Fotos-viejas", in: d) == nil,
+          "ni una que sólo se le parece en el nombre")
+    // Una carpeta desactivada no se copia, así que actualizarla no serviría.
+    check(CompanionState.folder(containing: "/Users/x/Movies/clips", in: d) == nil,
+          "ni una carpeta desactivada")
+}
+
+test("Una exportación se da por vieja según el intervalo elegido") {
+    var st = CompanionState(companion: .fotosync)
+    var regla = CompanionRule()
+    regla.maxAgeHours = 24
+
+    st.lastRun = nil
+    check(st.stale(regla), "sin haber exportado nunca, toca")
+
+    st.lastRun = Date().addingTimeInterval(-2 * 3600)
+    check(!st.stale(regla), "hace dos horas, no toca")
+
+    st.lastRun = Date().addingTimeInterval(-30 * 3600)
+    check(st.stale(regla), "hace treinta, sí")
+
+    // A cero se actualiza en cada conexión: es la opción «siempre».
+    regla.maxAgeHours = 0
+    st.lastRun = Date()
+    check(st.stale(regla), "a «siempre», toca aunque acabe de hacerse")
+}
+
+// Las reglas se guardan por disco dentro de su perfil. Un archivo escrito
+// antes de que existieran no las trae, y ahí lo que no puede pasar es que la
+// lectura entera se caiga y la app arranque sin discos ni carpetas.
+test("Las reglas de las apps sobreviven al viaje por el archivo") {
+    var d = DiskProfile()
+    d.volumeUUID = "UUID-1"
+    d.companions["fotosync"] = CompanionRule(mode: .suggest, maxAgeHours: 168)
+    var cfg = Config()
+    cfg.disks = [d]
+
+    let enc = JSONEncoder()
+    guard let data = try? enc.encode(cfg),
+          let leida = try? JSONDecoder().decode(Config.self, from: data) else {
+        check(false, "se codifica y se vuelve a leer"); return
+    }
+    checkEq(leida.disks.first?.companions["fotosync"]?.mode, .suggest, "vuelve el modo")
+    checkEq(leida.disks.first?.companions["fotosync"]?.maxAgeHours, 168, "y el intervalo")
+    // La que no se ha tocado nunca sale con la de fábrica, que actualiza sola.
+    checkEq(leida.disks.first?.rule(for: .itusync).mode, .auto,
+            "y la que no se ha tocado, con la de fábrica")
+
+    let vieja = #"{"disks":[{"volumeUUID":"UUID-1","rootFolder":"Backup","folders":[]}]}"#
+    guard let sinReglas = try? JSONDecoder().decode(Config.self, from: Data(vieja.utf8)) else {
+        check(false, "un archivo sin reglas se sigue leyendo"); return
+    }
+    checkEq(sinReglas.disks.count, 1, "un archivo de antes se lee igual")
+    checkEq(sinReglas.disks.first?.rule(for: .fotosync).maxAgeHours, 24,
+            "y sus discos salen con la regla de fábrica")
+}
+
 // MARK: - Resultado
 
 print("\n" + String(repeating: "─", count: 60))

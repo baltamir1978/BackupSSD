@@ -19,6 +19,7 @@ struct MainWindowView: View {
         VStack(spacing: 0) {
             if let d = state.selectedDisk {
                 cabecera(d)
+                avisoDeCompaneras(d)
                 Divider()
                 Picker("", selection: $pestana) {
                     Text("Carpetas").tag(Pestana.carpetas)
@@ -62,9 +63,8 @@ struct MainWindowView: View {
     private var sinDiscos: some View {
         VStack(spacing: 10) {
             Spacer()
-            Image(systemName: "externaldrive.badge.plus")
-                .font(.system(size: 44))
-                .foregroundStyle(.tertiary)
+            DiscoExterno(estado: .sinDisco, size: 88, animado: false)
+                .padding(.bottom, 4)
             Text("Todavía no hay ningún disco configurado")
                 .font(.system(.body, weight: .medium))
                 .foregroundStyle(.secondary)
@@ -82,10 +82,8 @@ struct MainWindowView: View {
 
     private func cabecera(_ d: DiskProfile) -> some View {
         HStack(alignment: .center, spacing: 12) {
-            Image(systemName: icono(d))
-                .font(.system(.largeTitle))
-                .foregroundStyle(state.isConnected(d) ? Color.accentColor : .secondary)
-                .frame(width: 34)
+            DiscoExterno(estado: EstadoDelDisco(state.status(of: d)), size: 46)
+                .frame(width: 50)
                 // El texto de al lado ya dice el estado; el icono repetiría.
                 .accessibilityHidden(true)
 
@@ -141,23 +139,55 @@ struct MainWindowView: View {
         .padding(14)
     }
 
+    // MARK: Las apps que preparan carpetas
+
+    /// «La fototeca lleva ocho días sin exportarse».
+    ///
+    /// Se enseña aquí arriba y no en los ajustes porque es lo único de la app
+    /// que puede hacer que el backup esté al día y aun así le falte lo de esta
+    /// semana. En modo automático también se dice: mientras el disco no esté
+    /// puesto, nadie va a actualizar nada, y saberlo antes de salir de casa con
+    /// el disco en la mochila es justo lo que hace falta.
+    @ViewBuilder
+    private func avisoDeCompaneras(_ d: DiskProfile) -> some View {
+        let pendientes = state.staleCompanions(of: d)
+        if !pendientes.isEmpty, !state.status(of: d).esTrabajando {
+            VStack(spacing: 6) {
+                ForEach(pendientes) { st in
+                    HStack(spacing: 8) {
+                        Image(systemName: "clock.badge.exclamationmark")
+                            .foregroundStyle(.orange)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(L("«%1$@» se exportó por última vez %2$@.",
+                                   st.folder?.name ?? st.companion.name, st.lastRunText))
+                                .font(.callout)
+                            Text(d.rule(for: st.companion).mode == .auto
+                                 ? L("%@ la pondrá al día antes de la próxima copia.", st.companion.name)
+                                 : L("Hasta que la actualices, el disco se llevará lo de entonces."))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button(L("Actualizar con %@", st.companion.name)) { state.runCompanion(st) }
+                            .controlSize(.small)
+                            .disabled(state.status.esTrabajando)
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 10)
+        }
+    }
+
     private func etiqueta(_ d: DiskProfile) -> String {
         let nombre = d.volumeName.isEmpty ? L("Disco sin nombre") : d.volumeName
         return state.isConnected(d) ? nombre : nombre + " " + L("(no conectado)")
     }
 
-    private func icono(_ d: DiskProfile) -> String {
-        switch state.status(of: d) {
-        case .copiando, .comparando: return "arrow.triangle.2.circlepath"
-        case .fallo:                 return "externaldrive.badge.exclamationmark"
-        case .listo:                 return "externaldrive.fill.badge.checkmark"
-        case .sinDisco:              return "externaldrive"
-        }
-    }
-
     private func titulo(_ d: DiskProfile) -> String {
         switch state.status(of: d) {
         case .listo(let v):  return L("%@ conectado", v)
+        case .actualizando(let app): return L("Actualizando con %@ antes de copiar…", app)
         case .comparando:    return L("Comparando el Mac con el disco…")
         case .copiando:      return L("Copiando…")
         case .fallo:         return L("No se pudo sincronizar")
@@ -171,6 +201,9 @@ struct MainWindowView: View {
     private func subtitulo(_ d: DiskProfile) -> String {
         let estado = state.status(of: d)
         if case .copiando(_, _, let actual) = estado { return actual }
+        if case .actualizando(let app) = estado {
+            return L("%@ está poniendo al día su carpeta; la copia empieza en cuanto termine.", app)
+        }
         if case .fallo(let m) = estado { return m }
         if state.queued.contains(d.id) { return L("Esperando a que acabe el otro disco…") }
         let problemas = state.config.problems(of: d)
