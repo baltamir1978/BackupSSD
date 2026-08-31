@@ -843,6 +843,41 @@ test("La raíz del backup cuelga del disco y de su carpeta") {
             "una carpeta en blanco cae al valor de siempre, no a la raíz del disco")
 }
 
+// MARK: - Historial
+
+// El historial se escribía en ISO-8601 y se leía con el decodificador por
+// omisión, que ahí espera un número: fallaba la lectura entera, la app
+// arrancaba con el historial en blanco y la primera sincronización escribía
+// encima. Se perdía en cada arranque, y en silencio.
+test("El historial se vuelve a leer tal y como se guardó") {
+    let entradas: [HistoryEntry] = [
+        {
+            var r = SyncReport()
+            r.copied = 3; r.updated = 1; r.bytesWritten = 4096
+            return HistoryEntry(report: r, volume: "Extreme SSD")
+        }(),
+        HistoryEntry(failure: "El disco Extreme SSD no está montado.", volume: "Extreme SSD"),
+    ]
+
+    let enc = JSONEncoder()
+    enc.dateEncodingStrategy = .iso8601
+    guard let data = try? enc.encode(entradas) else {
+        check(false, "se codifica"); return
+    }
+    let dec = JSONDecoder()
+    dec.dateDecodingStrategy = .iso8601
+    guard let leidas = try? dec.decode([HistoryEntry].self, from: data) else {
+        check(false, "y se vuelve a leer"); return
+    }
+    checkEq(leidas.count, 2, "vuelven las dos entradas")
+    checkEq(leidas.first?.copied, 3, "con lo que se copió")
+    checkEq(leidas.first?.volumeName, "Extreme SSD", "y de qué disco era")
+    checkEq(leidas.last?.failure, "El disco Extreme SSD no está montado.", "y el fallo, con su texto")
+    // Al segundo: la fecha tiene que sobrevivir al viaje.
+    check(abs((leidas.first?.date ?? .distantPast).timeIntervalSince(entradas[0].date)) < 1,
+          "y la fecha, que es lo que se rompía")
+}
+
 // MARK: - Resultado
 
 print("\n" + String(repeating: "─", count: 60))

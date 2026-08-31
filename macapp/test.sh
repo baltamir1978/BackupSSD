@@ -20,7 +20,7 @@ echo "Compilando las pruebas…"
 swiftc \
     -swift-version 5 \
     -o tests/build/tests \
-    Sources/Config.swift Sources/Localization.swift Sources/SyncEngine.swift Sources/Volumes.swift tests/main.swift
+    Sources/Config.swift Sources/History.swift Sources/Localization.swift Sources/SyncEngine.swift Sources/Volumes.swift tests/main.swift
 
 echo
 ./tests/build/tests
