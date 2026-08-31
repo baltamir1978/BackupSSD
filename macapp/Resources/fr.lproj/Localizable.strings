@@ -17,8 +17,6 @@
 "Elige el disco en los ajustes" = "Choisissez le disque dans les réglages";
 "Se sincronizará al conectarlo" = "La copie se fera au branchement";
 "Se sincroniza solo al conectarlo" = "Se synchronise tout seul au branchement";
-"El disco elegido" = "Le disque choisi";
-"elegido, ahora mismo no conectado" = "choisi, pas connecté pour l’instant";
 "No hay ningún disco externo conectado." = "Aucun disque externe n’est connecté.";
 
 /* --- Ce qu’il est en train de faire ------------------------------------ */
@@ -48,8 +46,6 @@
 "Ventana de Backup SSD…" = "Fenêtre de Backup SSD…";
 "Ajustes…" = "Réglages…";
 "Salir de Backup SSD" = "Quitter Backup SSD";
-"Elegir" = "Choisir";
-"Olvidar" = "Oublier";
 "Añadir" = "Ajouter";
 "Añadir una carpeta" = "Ajouter un dossier";
 "Vaciar el historial" = "Vider l’historique";
@@ -74,8 +70,6 @@
 "Copia" = "Copie";
 "Excluir" = "Exclure";
 "General" = "Général";
-"Disco de destino" = "Disque de destination";
-"El disco se recuerda por su identificador, no por su nombre: dos discos pueden llamarse igual y copiar en el que no es sería un desastre." = "Le disque est retenu par son identifiant, pas par son nom : deux disques peuvent porter le même nom, et copier sur le mauvais serait une catastrophe.";
 "Carpeta dentro del disco" = "Dossier à l’intérieur du disque";
 "Todo cuelga de esta carpeta, para que el disco pueda tener además otras cosas que Backup SSD no toca nunca." = "Tout est rangé sous ce dossier, pour que le disque puisse contenir autre chose auquel Backup SSD ne touche jamais.";
 "Sincronizar en cuanto se conecte el disco" = "Synchroniser dès que le disque est branché";
@@ -151,3 +145,31 @@
 "%1$@ → %2$@" = "%1$@ → %2$@";
 "%@ no se pudo comprobar después de copiarlo; sigue en el Mac" = "%@ n’a pas pu être vérifié après la copie ; il reste sur le Mac";
 "· ya había otro con ese nombre en el disco: %@" = "· il y avait déjà un autre fichier de ce nom sur le disque : %@";
+
+// Varios discos
+"(no conectado)" = "(non connecté)";
+"Ajustes de" = "Réglages de";
+"Añade un disco en la pestaña «Discos»." = "Ajoutez un disque dans l’onglet « Disques ».";
+"Cada disco guarda sus propias carpetas y sus propios ajustes. Se recuerdan por su identificador, no por su nombre: dos discos pueden llamarse igual y copiar en el que no es sería un desastre." = "Chaque disque garde ses propres dossiers et ses propres réglages. Ils sont reconnus par leur identifiant, pas par leur nom : deux disques peuvent porter le même nom, et copier sur le mauvais serait un désastre.";
+"Cada disco lleva sus propias carpetas y sus propios ajustes." = "Chaque disque a ses propres dossiers et ses propres réglages.";
+"Conectado" = "Connecté";
+"Conectados ahora" = "Connectés en ce moment";
+"Copiando en %@…" = "Copie vers %@…";
+"Disco sin nombre" = "Disque sans nom";
+"Discos" = "Disques";
+"En espera" = "En attente";
+"En espera: %@" = "En attente : %@";
+"Enchufa el disco donde quieras hacer la copia y añádelo en los ajustes. Puedes tener varios, cada uno con sus carpetas." = "Branchez le disque sur lequel vous voulez faire la copie et ajoutez-le dans les réglages. Vous pouvez en avoir plusieurs, chacun avec ses dossiers.";
+"Esperando a que acabe el otro disco…" = "En attente de la fin de l’autre disque…";
+"Hay otra configuración para este mismo disco." = "Il existe une autre configuration pour ce même disque.";
+"Quitar" = "Retirer";
+"Quitar este disco de la configuración" = "Retirer ce disque de la configuration";
+"Se olvidan sus carpetas y sus ajustes. Lo que ya está copiado en el disco no se toca." = "Ses dossiers et ses réglages sont oubliés. Ce qui est déjà copié sur le disque n’est pas touché.";
+"Sincronizar los %@ discos" = "Synchroniser les %@ disques";
+"Todavía no hay ningún disco configurado" = "Aucun disque n’est encore configuré";
+"Todos los discos conectados están ya configurados." = "Tous les disques connectés sont déjà configurés.";
+"Tus discos" = "Vos disques";
+"conectado" = "connecté";
+"no conectado" = "non connecté";
+"sin carpetas todavía" = "aucun dossier pour l’instant";
+"¿Quitar «%@» de Backup SSD?" = "Retirer « %@ » de Backup SSD ?";

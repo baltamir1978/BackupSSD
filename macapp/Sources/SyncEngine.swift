@@ -256,7 +256,7 @@ final class SyncEngine: @unchecked Sendable {
     /// - Parameters:
     ///   - root: carpeta raíz dentro del disco (ya montada).
     ///   - dryRun: planifica y cuenta, pero no escribe nada.
-    func run(config cfg: Config, root: URL, dryRun: Bool = false) throws -> SyncReport {
+    func run(config cfg: DiskProfile, root: URL, dryRun: Bool = false) throws -> SyncReport {
         let started = Date()
         var report = SyncReport()
 

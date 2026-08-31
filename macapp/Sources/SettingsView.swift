@@ -1,5 +1,11 @@
-// Los ajustes. El de arriba —qué disco— es el que importa; el resto son
+// Los ajustes. El de arriba —qué discos— es el que importa; el resto son
 // matices que casi nadie tocará.
+//
+// Todo lo de «Copia» y «Excluir» es de un disco en concreto, no de la app: por
+// eso las tres pestañas miran al mismo disco elegido, y por eso el nombre de
+// ese disco se ve siempre. Cambiarle las carpetas al disco que no era, creyendo
+// que se le cambian a otro, es de los errores que no se notan hasta que ya se
+// ha copiado.
 
 import SwiftUI
 
@@ -14,8 +20,8 @@ struct SettingsView: View {
 
     var body: some View {
         TabView(selection: $pestana) {
-            DiscoTab(state: state)
-                .tabItem { Label("Disco", systemImage: "externaldrive") }
+            DiscosTab(state: state)
+                .tabItem { Label("Discos", systemImage: "externaldrive") }
                 .tag(Pestana.disco)
             CopiaTab(state: state)
                 .tabItem { Label("Copia", systemImage: "arrow.triangle.2.circlepath") }
@@ -27,83 +33,134 @@ struct SettingsView: View {
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(Pestana.general)
         }
-        .frame(width: 480, height: 400)
+        .frame(width: 480, height: 440)
     }
 }
 
-// MARK: - Disco
+// MARK: - Piezas compartidas
 
-private struct DiscoTab: View {
+/// El disco al que se le están cambiando las cosas.
+///
+/// Se enseña siempre, incluso con un solo disco configurado: es la respuesta a
+/// «¿a cuál de ellos le estoy tocando esto?», y no tenerla a la vista es lo que
+/// convierte un ajuste en una sorpresa.
+private struct CabeceraDeDisco: View {
     @ObservedObject var state: AppState
 
-    /// Los externos primero: son los que alguien querría de destino. Los
-    /// internos se enseñan también, por si se copia a otra partición del Mac.
-    private var discos: [VolumeInfo] {
-        state.volumes.filter(\.looksLikeBackupDisk) + state.volumes.filter { !$0.looksLikeBackupDisk }
+    var body: some View {
+        if state.config.disks.count > 1 {
+            Picker("Ajustes de", selection: Binding(
+                get: { state.selectedDisk?.id },
+                set: { state.selectedDiskID = $0 }
+            )) {
+                ForEach(state.config.disks) { d in
+                    Text(nombre(d)).tag(Optional(d.id))
+                }
+            }
+        } else if let d = state.selectedDisk {
+            LabeledContent("Ajustes de") { Text(nombre(d)) }
+        }
+    }
+
+    private func nombre(_ d: DiskProfile) -> String {
+        d.volumeName.isEmpty ? L("Disco sin nombre") : d.volumeName
+    }
+}
+
+/// Lo que se enseña en «Copia» y «Excluir» cuando todavía no hay ningún disco.
+private struct SinDiscos: View {
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "externaldrive.badge.plus")
+                .font(.system(size: 32))
+                .foregroundStyle(.tertiary)
+            Text("Añade un disco en la pestaña «Discos».")
+                .foregroundStyle(.secondary)
+            Text("Cada disco lleva sus propias carpetas y sus propios ajustes.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Un enlace de ida y vuelta al disco elegido, para poder editarlo con `$`.
+private func enlace(_ state: AppState, _ id: UUID) -> Binding<DiskProfile> {
+    Binding(
+        get: { state.config[id] ?? DiskProfile() },
+        set: { state.config[id] = $0 }
+    )
+}
+
+// MARK: - Discos
+
+private struct DiscosTab: View {
+    @ObservedObject var state: AppState
+
+    /// Conectados y todavía sin configurar. Los externos primero: son los que
+    /// alguien querría de destino. Los internos se enseñan también, por si se
+    /// copia a otra partición del Mac.
+    private var porAnadir: [VolumeInfo] {
+        let ya = Set(state.config.disks.map(\.volumeUUID))
+        let libres = state.volumes.filter { !ya.contains($0.uuid) }
+        return libres.filter(\.looksLikeBackupDisk) + libres.filter { !$0.looksLikeBackupDisk }
     }
 
     var body: some View {
         Form {
             Section {
-                if discos.isEmpty {
-                    Text("No hay ningún disco externo conectado.")
+                if state.config.disks.isEmpty {
+                    Text("Todavía no hay ningún disco configurado")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(discos) { d in
-                        HStack(spacing: 10) {
-                            Image(systemName: d.isInternal ? "internaldrive" : "externaldrive")
-                                .foregroundStyle(d.uuid == state.config.volumeUUID ? Color.accentColor : .secondary)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(d.name)
-                                Text(d.uuid)
-                                    .font(.system(.caption2, design: .monospaced))
-                                    .foregroundStyle(.tertiary)
-                            }
-                            Spacer()
-                            if d.uuid == state.config.volumeUUID {
-                                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                            } else {
-                                Button("Elegir") { state.chooseVolume(d) }
-                                    .controlSize(.small)
-                            }
-                        }
-                        .padding(.vertical, 2)
-                    }
-                }
-
-                // Recordar el disco elegido aunque no esté puesto: si sólo se
-                // pudieran ver los conectados, quien abre los ajustes sin el
-                // disco encima creería que ha perdido la configuración.
-                if !state.config.volumeUUID.isEmpty,
-                   !discos.contains(where: { $0.uuid == state.config.volumeUUID }) {
-                    HStack(spacing: 10) {
-                        Image(systemName: "externaldrive.badge.questionmark").foregroundStyle(.secondary)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(state.config.volumeName.isEmpty ? "El disco elegido" : state.config.volumeName)
-                            Text("elegido, ahora mismo no conectado")
-                                .font(.caption2).foregroundStyle(.tertiary)
-                        }
-                        Spacer()
-                        Button("Olvidar") {
-                            state.config.volumeUUID = ""
-                            state.config.volumeName = ""
-                            state.refreshVolume()
-                        }
-                        .controlSize(.small)
+                    ForEach(state.config.disks) { d in
+                        FilaDeDisco(state: state, disk: d)
                     }
                 }
             } header: {
-                Text("Disco de destino")
+                Text("Tus discos")
             } footer: {
-                Text("El disco se recuerda por su identificador, no por su nombre: dos discos pueden llamarse igual y copiar en el que no es sería un desastre.")
+                Text("Cada disco guarda sus propias carpetas y sus propios ajustes. Se recuerdan por su identificador, no por su nombre: dos discos pueden llamarse igual y copiar en el que no es sería un desastre.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
             Section {
-                TextField("Carpeta dentro del disco", text: $state.config.rootFolder)
-            } footer: {
-                Text("Todo cuelga de esta carpeta, para que el disco pueda tener además otras cosas que Backup SSD no toca nunca.")
-                    .font(.caption).foregroundStyle(.secondary)
+                if porAnadir.isEmpty {
+                    Text(state.volumes.isEmpty
+                         ? "No hay ningún disco externo conectado."
+                         : "Todos los discos conectados están ya configurados.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(porAnadir) { v in
+                        HStack(spacing: 10) {
+                            Image(systemName: v.isInternal ? "internaldrive" : "externaldrive")
+                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(v.name)
+                                Text(v.uuid)
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            Spacer()
+                            Button("Añadir") { state.addDisk(v) }
+                                .controlSize(.small)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            } header: {
+                Text("Conectados ahora")
+            }
+
+            if let d = state.selectedDisk {
+                Section {
+                    TextField("Carpeta dentro del disco", text: enlace(state, d.id).rootFolder)
+                } header: {
+                    CabeceraDeDisco(state: state)
+                } footer: {
+                    Text("Todo cuelga de esta carpeta, para que el disco pueda tener además otras cosas que Backup SSD no toca nunca.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
         }
         .formStyle(.grouped)
@@ -114,55 +171,116 @@ private struct DiscoTab: View {
     }
 }
 
+private struct FilaDeDisco: View {
+    @ObservedObject var state: AppState
+    let disk: DiskProfile
+    @State private var preguntando = false
+
+    private var elegido: Bool { state.selectedDisk?.id == disk.id }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: state.isConnected(disk) ? "externaldrive.fill" : "externaldrive")
+                .foregroundStyle(elegido ? Color.accentColor : .secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(disk.volumeName.isEmpty ? L("Disco sin nombre") : disk.volumeName)
+                Text(subtitulo)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer()
+            if state.isConnected(disk) {
+                Text("Conectado")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            }
+            Button {
+                preguntando = true
+            } label: {
+                Image(systemName: "minus")
+            }
+            .controlSize(.small)
+            .help(L("Quitar este disco de la configuración"))
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture { state.selectedDiskID = disk.id }
+        // Quitar un disco tira su configuración entera, y con varios discos es
+        // fácil pulsar el «−» de la fila de al lado. Lo que hay en el disco no
+        // se toca, y conviene decirlo aquí para que nadie lo dude.
+        .confirmationDialog(L("¿Quitar «%@» de Backup SSD?", disk.volumeName),
+                            isPresented: $preguntando, titleVisibility: .visible) {
+            Button(L("Quitar"), role: .destructive) { state.removeDisk(disk.id) }
+            Button(L("Cancelar"), role: .cancel) {}
+        } message: {
+            Text("Se olvidan sus carpetas y sus ajustes. Lo que ya está copiado en el disco no se toca.")
+        }
+    }
+
+    private var subtitulo: String {
+        let carpetas = disk.folders.filter(\.enabled).count
+        return carpetas == 0
+            ? L("sin carpetas todavía")
+            : plural("%ld carpetas", carpetas)
+    }
+}
+
 // MARK: - Copia
 
 private struct CopiaTab: View {
     @ObservedObject var state: AppState
 
     var body: some View {
-        Form {
-            Section {
-                Toggle("Sincronizar en cuanto se conecte el disco", isOn: $state.config.autoSyncOnMount)
-            } footer: {
-                Text("Sin esto habrá que darle a «Sincronizar ahora» desde el menú cada vez.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
+        if let d = state.selectedDisk {
+            let disco = enlace(state, d.id)
+            Form {
+                Section { CabeceraDeDisco(state: state) }
 
-            Section {
-                Toggle("Guardar lo que se borre del Mac", isOn: $state.config.keepRemoved)
-                if state.config.keepRemoved {
-                    HStack {
-                        Text("Guardarlo durante")
-                        TextField("", value: $state.config.removedRetentionDays, format: .number)
-                            .frame(width: 60)
-                            .multilineTextAlignment(.trailing)
-                        Text("días")
-                        Spacer()
-                    }
-                    Text(state.config.removedRetentionDays == 0
-                         ? L("A 0 días no se borra nunca de la papelera del disco.")
-                         : L("Pasados %@ se borra de verdad.", plural("%ld días", state.config.removedRetentionDays)))
+                Section {
+                    Toggle("Sincronizar en cuanto se conecte el disco", isOn: disco.autoSyncOnMount)
+                } footer: {
+                    Text("Sin esto habrá que darle a «Sincronizar ahora» desde el menú cada vez.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-            } header: {
-                Text("Lo que se borra")
-            } footer: {
-                Text(state.config.keepRemoved
-                     ? "Lo que borres en el Mac no se borra del disco: se aparta a la carpeta _Retirados, con la fecha del día. Es la red bajo un borrado por error."
-                     : "⚠︎ Sin esto, borrar algo en el Mac lo borra del disco en la siguiente sincronización, y no hay vuelta atrás.")
-                    .font(.caption)
-                    .foregroundStyle(state.config.keepRemoved ? Color.secondary : Color.orange)
-            }
 
-            Section {
-                Toggle("Saltarse los archivos de iCloud que no estén descargados",
-                       isOn: $state.config.skipUndownloadediCloud)
-            } footer: {
-                Text("Copiarlos obligaría a bajarlos primero, que es justo lo que nadie espera al enchufar un disco.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Section {
+                    Toggle("Guardar lo que se borre del Mac", isOn: disco.keepRemoved)
+                    if d.keepRemoved {
+                        HStack {
+                            Text("Guardarlo durante")
+                            TextField("", value: disco.removedRetentionDays, format: .number)
+                                .frame(width: 60)
+                                .multilineTextAlignment(.trailing)
+                            Text("días")
+                            Spacer()
+                        }
+                        Text(d.removedRetentionDays == 0
+                             ? L("A 0 días no se borra nunca de la papelera del disco.")
+                             : L("Pasados %@ se borra de verdad.", plural("%ld días", d.removedRetentionDays)))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Lo que se borra")
+                } footer: {
+                    Text(d.keepRemoved
+                         ? "Lo que borres en el Mac no se borra del disco: se aparta a la carpeta _Retirados, con la fecha del día. Es la red bajo un borrado por error."
+                         : "⚠︎ Sin esto, borrar algo en el Mac lo borra del disco en la siguiente sincronización, y no hay vuelta atrás.")
+                        .font(.caption)
+                        .foregroundStyle(d.keepRemoved ? Color.secondary : Color.orange)
+                }
+
+                Section {
+                    Toggle("Saltarse los archivos de iCloud que no estén descargados",
+                           isOn: disco.skipUndownloadediCloud)
+                } footer: {
+                    Text("Copiarlos obligaría a bajarlos primero, que es justo lo que nadie espera al enchufar un disco.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
+            .formStyle(.grouped)
+        } else {
+            SinDiscos()
         }
-        .formStyle(.grouped)
     }
 }
 
@@ -174,44 +292,55 @@ private struct ExclusionesTab: View {
     @State private var seleccion: String?
 
     var body: some View {
-        VStack(spacing: 0) {
-            List(selection: $seleccion) {
-                ForEach(state.config.excludes, id: \.self) { p in
-                    Text(p).font(.system(.callout, design: .monospaced)).tag(p)
+        if let d = state.selectedDisk {
+            VStack(spacing: 0) {
+                Form { Section { CabeceraDeDisco(state: state) } }
+                    .formStyle(.grouped)
+                    .frame(height: 70)
+
+                List(selection: $seleccion) {
+                    ForEach(d.excludes, id: \.self) { p in
+                        Text(p).font(.system(.callout, design: .monospaced)).tag(p)
+                    }
                 }
-            }
-            .listStyle(.inset)
+                .listStyle(.inset)
 
-            Divider()
-            HStack(spacing: 8) {
-                TextField("Nombre a excluir, p. ej. *.log", text: $nuevo)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(anadir)
-                Button("Añadir", action: anadir)
-                    .disabled(nuevo.trimmingCharacters(in: .whitespaces).isEmpty)
-                Button { quitar() } label: { Image(systemName: "minus") }
-                    .disabled(seleccion == nil)
-            }
-            .padding(8)
+                Divider()
+                HStack(spacing: 8) {
+                    TextField("Nombre a excluir, p. ej. *.log", text: $nuevo)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { anadir(d) }
+                    Button("Añadir") { anadir(d) }
+                        .disabled(nuevo.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button { quitar(d) } label: { Image(systemName: "minus") }
+                        .disabled(seleccion == nil)
+                }
+                .padding(8)
 
-            Text("Se compara con el nombre del archivo o de la carpeta, no con la ruta entera. Vale un « * » al principio o al final.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 10)
-                .padding(.bottom, 10)
+                Text("Se compara con el nombre del archivo o de la carpeta, no con la ruta entera. Vale un « * » al principio o al final.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 10)
+            }
+            // Al cambiar de disco, lo escrito a medias y lo seleccionado eran
+            // de otro: se limpian para no añadírselo al que no era.
+            .onChange(of: d.id) { _ in nuevo = ""; seleccion = nil }
+        } else {
+            SinDiscos()
         }
     }
 
-    private func anadir() {
+    private func anadir(_ d: DiskProfile) {
         let p = nuevo.trimmingCharacters(in: .whitespaces)
-        guard !p.isEmpty, !state.config.excludes.contains(p) else { nuevo = ""; return }
-        state.config.excludes.append(p)
+        guard !p.isEmpty, !d.excludes.contains(p) else { nuevo = ""; return }
+        state.config[d.id]?.excludes.append(p)
         nuevo = ""
     }
 
-    private func quitar() {
+    private func quitar(_ d: DiskProfile) {
         guard let s = seleccion else { return }
-        state.config.excludes.removeAll { $0 == s }
+        state.config[d.id]?.excludes.removeAll { $0 == s }
         seleccion = nil
     }
 }

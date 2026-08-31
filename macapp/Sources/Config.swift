@@ -49,7 +49,7 @@ struct SyncFolder: Codable, Identifiable, Equatable {
     /// Sólo se usa cuando la carpeta no cuelga de otra configurada. Si cuelga
     /// —`~/Documentos/otros` dentro de `~/Documentos`—, el destino sale de la
     /// de fuera y esto se queda como mera etiqueta para la interfaz. Ver
-    /// `Config.destination(of:under:)`.
+    /// `DiskProfile.destination(of:under:)`.
     var name: String
     var enabled: Bool = true
     /// Sincronizar (por omisión) o mover. Ver `FolderMode`.
@@ -78,7 +78,7 @@ struct SyncFolder: Codable, Identifiable, Equatable {
     }
 
     /// La ruta de destino de esta carpeta cuando no cuelga de ninguna otra.
-    /// Para el caso general hay que pasar por `Config.destination(of:under:)`,
+    /// Para el caso general hay que pasar por `DiskProfile.destination(of:under:)`,
     /// que sabe de las demás carpetas.
     func destination(under root: URL) -> URL {
         root.appendingPathComponent(name, isDirectory: true)
@@ -112,7 +112,18 @@ enum Appearance: String, Codable, CaseIterable {
 
 // MARK: - Configuración
 
-struct Config: Codable {
+/// Todo lo que hay que saber de **un** disco: cuál es, qué se le copia y con
+/// qué reglas.
+///
+/// Esto era `Config` entero cuando la app sólo sabía de un disco. Ahora
+/// `Config` no es más que la lista de estos, y lo de dentro se quedó igual: es
+/// lo que el motor pide, y lo que se decidió que fuera propio de cada disco.
+struct DiskProfile: Codable, Identifiable {
+    /// Identidad dentro de la lista, que no es la del disco. `volumeUUID`
+    /// cambia si a este perfil se le asigna otro disco, y las listas de SwiftUI
+    /// necesitan algo que no se les mueva debajo mientras se edita.
+    var id = UUID()
+
     /// UUID del volumen de destino. **Es la clave de todo**: identificar el
     /// disco por su nombre sería temerario, porque dos discos pueden llamarse
     /// «Backup» y macOS monta el segundo como «Backup 1». Copiar al disco
@@ -153,14 +164,7 @@ struct Config: Codable {
     /// justamente lo que nadie espera al enchufar un disco.
     var skipUndownloadediCloud: Bool = true
 
-    var appearance: Appearance = .system
-
     // MARK: Persistencia
-
-    static var directory: URL {
-        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".config/backup-ssd", isDirectory: true)
-    }
-    static var fileURL: URL { directory.appendingPathComponent("config.json") }
 
     /// Igual que en Fotosync e Itusync: cada clave se lee por separado y cae a
     /// su valor por omisión si falta.
@@ -172,15 +176,18 @@ struct Config: Codable {
     /// configuración de fábrica, **sin discos ni carpetas configuradas**, y
     /// parecería que se ha perdido todo.
     private enum CodingKeys: String, CodingKey {
-        case volumeUUID, volumeName, rootFolder, folders, autoSyncOnMount
-        case keepRemoved, removedRetentionDays, excludes, skipUndownloadediCloud, appearance
+        case id, volumeUUID, volumeName, rootFolder, folders, autoSyncOnMount
+        case keepRemoved, removedRetentionDays, excludes, skipUndownloadediCloud
     }
 
     init() {}
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        let base = Config()
+        let base = DiskProfile()
+        // Un disco migrado de la configuración de antes no trae `id`, porque
+        // entonces no había lista en la que distinguirse.
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         volumeUUID = try c.decodeIfPresent(String.self, forKey: .volumeUUID) ?? base.volumeUUID
         volumeName = try c.decodeIfPresent(String.self, forKey: .volumeName) ?? base.volumeName
         rootFolder = try c.decodeIfPresent(String.self, forKey: .rootFolder) ?? base.rootFolder
@@ -190,32 +197,6 @@ struct Config: Codable {
         removedRetentionDays = try c.decodeIfPresent(Int.self, forKey: .removedRetentionDays) ?? base.removedRetentionDays
         excludes = try c.decodeIfPresent([String].self, forKey: .excludes) ?? base.excludes
         skipUndownloadediCloud = try c.decodeIfPresent(Bool.self, forKey: .skipUndownloadediCloud) ?? base.skipUndownloadediCloud
-        appearance = try c.decodeIfPresent(Appearance.self, forKey: .appearance) ?? base.appearance
-    }
-
-    static func load() -> Config {
-        guard let data = try? Data(contentsOf: fileURL),
-              let cfg = try? JSONDecoder().decode(Config.self, from: data)
-        else { return Config() }
-        return cfg
-    }
-
-    /// Escribe primero a un archivo aparte y luego renombra: si el ordenador
-    /// se apaga a media escritura, el archivo viejo sigue entero en vez de
-    /// quedarse a medias e ilegible.
-    func save() {
-        let fm = FileManager.default
-        try? fm.createDirectory(at: Config.directory, withIntermediateDirectories: true)
-        let enc = JSONEncoder()
-        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? enc.encode(self) else { return }
-        let tmp = Config.fileURL.appendingPathExtension("nuevo")
-        do {
-            try data.write(to: tmp, options: .atomic)
-            _ = try? fm.replaceItemAt(Config.fileURL, withItemAt: tmp)
-        } catch {
-            try? data.write(to: Config.fileURL, options: .atomic)
-        }
     }
 
     // MARK: Quién cuelga de quién
@@ -332,6 +313,126 @@ struct Config: Codable {
                 guard df.hasPrefix(dg + "/"), !isDescendant(f, of: g) else { continue }
                 out.append(L("El destino de «%1$@» cae dentro del de «%2$@» sin estar dentro de ella en el Mac.", f.name, g.name))
             }
+        }
+        return out
+    }
+}
+
+// MARK: - La configuración entera
+
+/// Los discos configurados y lo poco que es de la app y no de ninguno de ellos.
+///
+/// Cada disco lleva lo suyo —sus carpetas, su carpeta raíz, sus exclusiones, su
+/// política de retirados—, y por eso dos discos pueden copiar las mismas
+/// carpetas o carpetas distintas sin estorbarse. Aquí arriba sólo queda lo que
+/// no tendría sentido preguntar por disco: cómo se ve la app.
+struct Config: Codable {
+    var disks: [DiskProfile] = []
+    var appearance: Appearance = .system
+
+    /// Se ha leído el archivo de cuando la app sólo sabía de un disco, y se ha
+    /// convertido al vuelo. No se guarda: sirve para que `load()` deje una
+    /// copia del archivo viejo antes de escribir encima el nuevo.
+    private(set) var migratedFromV1 = false
+
+    // MARK: Persistencia
+
+    static var directory: URL {
+        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".config/backup-ssd", isDirectory: true)
+    }
+    static var fileURL: URL { directory.appendingPathComponent("config.json") }
+    /// Dónde queda el archivo de antes de la migración. Ver `load()`.
+    static var v1BackupURL: URL { directory.appendingPathComponent("config-v1.json") }
+
+    /// Clave a clave y con su valor por omisión, por lo mismo que en
+    /// `DiskProfile`: una clave nueva no puede tirar la lectura entera.
+    private enum CodingKeys: String, CodingKey { case disks, appearance }
+
+    init() {}
+
+    /// Lee la configuración, venga en el formato de ahora o en el de antes.
+    ///
+    /// Hasta la versión con varios discos, el archivo **era** la configuración
+    /// de un disco: `volumeUUID` y `folders` colgaban de la raíz del JSON. Si
+    /// no viene `disks`, es que es uno de esos: se decodifica el mismo objeto
+    /// como un `DiskProfile` y pasa a ser el primero de la lista. Ni una
+    /// carpeta se pierde por el camino, que es lo único que importa aquí.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        appearance = try c.decodeIfPresent(Appearance.self, forKey: .appearance) ?? .system
+
+        if let lista = try c.decodeIfPresent([DiskProfile].self, forKey: .disks) {
+            disks = lista
+            return
+        }
+        let uno = try DiskProfile(from: decoder)
+        // Un archivo recién creado, sin disco ni carpetas, no es una
+        // configuración que migrar: es una app sin estrenar.
+        disks = uno.volumeUUID.isEmpty && uno.folders.isEmpty ? [] : [uno]
+        migratedFromV1 = !disks.isEmpty
+    }
+
+    static func load() -> Config {
+        guard let data = try? Data(contentsOf: fileURL),
+              let cfg = try? JSONDecoder().decode(Config.self, from: data)
+        else { return Config() }
+
+        // Se guarda el archivo de antes tal cual **antes** de que nada escriba
+        // encima. Es el único paso de todo esto que podría hacer creer que se
+        // ha perdido la configuración de siempre, y así siempre hay a dónde
+        // volver, con un editor de texto y sin depender de esta app.
+        if cfg.migratedFromV1, !FileManager.default.fileExists(atPath: v1BackupURL.path) {
+            try? data.write(to: v1BackupURL, options: .atomic)
+        }
+        return cfg
+    }
+
+    /// Escribe primero a un archivo aparte y luego renombra: si el ordenador
+    /// se apaga a media escritura, el archivo viejo sigue entero en vez de
+    /// quedarse a medias e ilegible.
+    func save() {
+        let fm = FileManager.default
+        try? fm.createDirectory(at: Config.directory, withIntermediateDirectories: true)
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? enc.encode(self) else { return }
+        let tmp = Config.fileURL.appendingPathExtension("nuevo")
+        do {
+            try data.write(to: tmp, options: .atomic)
+            _ = try? fm.replaceItemAt(Config.fileURL, withItemAt: tmp)
+        } catch {
+            try? data.write(to: Config.fileURL, options: .atomic)
+        }
+    }
+
+    // MARK: Buscar discos
+
+    subscript(id: UUID) -> DiskProfile? {
+        get { disks.first { $0.id == id } }
+        set {
+            guard let nuevo = newValue, let i = disks.firstIndex(where: { $0.id == id }) else { return }
+            disks[i] = nuevo
+        }
+    }
+
+    /// El disco configurado para ese volumen, si lo hay.
+    func disk(uuid: String) -> DiskProfile? {
+        guard !uuid.isEmpty else { return nil }
+        return disks.first { $0.volumeUUID == uuid }
+    }
+
+    // MARK: Comprobaciones
+
+    /// Los problemas de un disco: los suyos propios, más los que sólo se ven
+    /// mirando la lista entera.
+    func problems(of disk: DiskProfile) -> [String] {
+        var out = disk.problems()
+        // Por construcción no pasa —no se deja añadir dos veces el mismo
+        // disco—, pero el archivo se puede editar a mano, y dos configuraciones
+        // para el mismo disco se pisarían la una a la otra sin decir nada.
+        if !disk.volumeUUID.isEmpty,
+           disks.contains(where: { $0.id != disk.id && $0.volumeUUID == disk.volumeUUID }) {
+            out.append(L("Hay otra configuración para este mismo disco."))
         }
         return out
     }

@@ -16,8 +16,6 @@
 "Elige el disco en los ajustes" = "Choose the disk in Settings";
 "Se sincronizará al conectarlo" = "It will sync when you plug it in";
 "Se sincroniza solo al conectarlo" = "Syncs by itself when plugged in";
-"El disco elegido" = "The chosen disk";
-"elegido, ahora mismo no conectado" = "chosen, not connected right now";
 "No hay ningún disco externo conectado." = "No external disk is connected.";
 
 /* --- What it is doing -------------------------------------------------- */
@@ -47,8 +45,6 @@
 "Ventana de Backup SSD…" = "Backup SSD Window…";
 "Ajustes…" = "Settings…";
 "Salir de Backup SSD" = "Quit Backup SSD";
-"Elegir" = "Choose";
-"Olvidar" = "Forget";
 "Añadir" = "Add";
 "Añadir una carpeta" = "Add a folder";
 "Vaciar el historial" = "Clear the history";
@@ -73,8 +69,6 @@
 "Copia" = "Copying";
 "Excluir" = "Exclude";
 "General" = "General";
-"Disco de destino" = "Destination disk";
-"El disco se recuerda por su identificador, no por su nombre: dos discos pueden llamarse igual y copiar en el que no es sería un desastre." = "The disk is remembered by its identifier, not by its name: two disks can share a name, and copying to the wrong one would be a disaster.";
 "Carpeta dentro del disco" = "Folder inside the disk";
 "Todo cuelga de esta carpeta, para que el disco pueda tener además otras cosas que Backup SSD no toca nunca." = "Everything hangs off this folder, so the disk can also hold other things that Backup SSD never touches.";
 "Sincronizar en cuanto se conecte el disco" = "Sync as soon as the disk is connected";
@@ -150,3 +144,31 @@
 "%1$@ → %2$@" = "%1$@ → %2$@";
 "%@ no se pudo comprobar después de copiarlo; sigue en el Mac" = "%@ could not be checked after copying; it is still on the Mac";
 "· ya había otro con ese nombre en el disco: %@" = "· there was already another one by that name on the disk: %@";
+
+// Varios discos
+"(no conectado)" = "(not connected)";
+"Ajustes de" = "Settings for";
+"Añade un disco en la pestaña «Discos»." = "Add a disk in the “Disks” tab.";
+"Cada disco guarda sus propias carpetas y sus propios ajustes. Se recuerdan por su identificador, no por su nombre: dos discos pueden llamarse igual y copiar en el que no es sería un desastre." = "Each disk keeps its own folders and its own settings. They are remembered by their identifier, not by their name: two disks can share a name, and copying to the wrong one would be a disaster.";
+"Cada disco lleva sus propias carpetas y sus propios ajustes." = "Each disk has its own folders and its own settings.";
+"Conectado" = "Connected";
+"Conectados ahora" = "Connected right now";
+"Copiando en %@…" = "Copying to %@…";
+"Disco sin nombre" = "Unnamed disk";
+"Discos" = "Disks";
+"En espera" = "Waiting";
+"En espera: %@" = "Waiting: %@";
+"Enchufa el disco donde quieras hacer la copia y añádelo en los ajustes. Puedes tener varios, cada uno con sus carpetas." = "Plug in the disk you want to back up to and add it in the settings. You can have several, each with its own folders.";
+"Esperando a que acabe el otro disco…" = "Waiting for the other disk to finish…";
+"Hay otra configuración para este mismo disco." = "There is another configuration for this same disk.";
+"Quitar" = "Remove";
+"Quitar este disco de la configuración" = "Remove this disk from the configuration";
+"Se olvidan sus carpetas y sus ajustes. Lo que ya está copiado en el disco no se toca." = "Its folders and settings are forgotten. Whatever is already copied on the disk is left alone.";
+"Sincronizar los %@ discos" = "Sync all %@ disks";
+"Todavía no hay ningún disco configurado" = "No disk has been set up yet";
+"Todos los discos conectados están ya configurados." = "Every connected disk is already set up.";
+"Tus discos" = "Your disks";
+"conectado" = "connected";
+"no conectado" = "not connected";
+"sin carpetas todavía" = "no folders yet";
+"¿Quitar «%@» de Backup SSD?" = "Remove “%@” from Backup SSD?";

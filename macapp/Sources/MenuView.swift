@@ -2,6 +2,10 @@
 //
 // Tiene que responder de un vistazo a «¿está el disco?» y «¿está al día?».
 // Todo lo demás cabe en la ventana.
+//
+// Con un solo disco configurado es exactamente el menú de siempre. En cuanto
+// hay más, cada disco trae su propio bloque: nunca hay un «Sincronizar ahora» a
+// secas del que haya que adivinar a cuál se refiere.
 
 import SwiftUI
 
@@ -67,6 +71,15 @@ struct MenuView: View {
             } else {
                 ProgressView().progressViewStyle(.linear)
             }
+            // Los que esperan turno se dicen aquí: si no, un disco enchufado y
+            // quieto parecería olvidado.
+            ForEach(state.queued, id: \.self) { id in
+                if let d = state.config[id] {
+                    Text(L("En espera: %@", d.volumeName.isEmpty ? L("Disco sin nombre") : d.volumeName))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
             Button("Cancelar") { state.cancel() }
                 .controlSize(.small)
         }
@@ -86,21 +99,10 @@ struct MenuView: View {
 
     private var botones: some View {
         VStack(alignment: .leading, spacing: 2) {
-            FilaDeMenu(L("Sincronizar ahora"), key: "s", enabled: state.canSync) {
-                dismiss()
-                state.sync()
-            }
-            FilaDeMenu(L("Abrir el disco"), enabled: state.volume != nil) {
-                dismiss()
-                if let v = state.volume { NSWorkspace.shared.open(v.url) }
-            }
-            // El texto cambia porque la acción cambia: si está copiando, esto
-            // primero para y luego expulsa, y conviene decirlo antes de
-            // pulsarlo.
-            FilaDeMenu(state.status.esTrabajando ? L("Detener y expulsar el disco") : L("Expulsar el disco"),
-                       enabled: state.volume != nil && !state.ejecting) {
-                dismiss()
-                state.stopAndEject()
+            if state.config.disks.count > 1 {
+                variosDiscos
+            } else {
+                unDisco
             }
             Divider().padding(.vertical, 3)
             FilaDeMenu(L("Ventana de Backup SSD…")) { abrir("principal", titulo: "Backup SSD") }
@@ -108,6 +110,89 @@ struct MenuView: View {
             Divider().padding(.vertical, 3)
             FilaDeMenu(L("Salir de Backup SSD"), key: "q") { NSApp.terminate(nil) }
         }
+    }
+
+    /// El menú de toda la vida, cuando sólo hay un disco (o ninguno).
+    @ViewBuilder
+    private var unDisco: some View {
+        let d = state.config.disks.first
+        FilaDeMenu(L("Sincronizar ahora"), key: "s", enabled: d.map { state.canSync($0) } ?? false) {
+            dismiss()
+            if let d { state.sync(d) }
+        }
+        FilaDeMenu(L("Abrir el disco"), enabled: conectado(d) != nil) {
+            dismiss()
+            if let v = conectado(d) { NSWorkspace.shared.open(v.url) }
+        }
+        // El texto cambia porque la acción cambia: si está copiando, esto
+        // primero para y luego expulsa, y conviene decirlo antes de pulsarlo.
+        FilaDeMenu(state.status.esTrabajando ? L("Detener y expulsar el disco") : L("Expulsar el disco"),
+                   enabled: conectado(d) != nil && !(d.map { state.ejecting.contains($0.id) } ?? true)) {
+            dismiss()
+            if let d { state.stopAndEject(d) }
+        }
+    }
+
+    /// Con varios discos, cada uno con lo suyo y su nombre por delante.
+    @ViewBuilder
+    private var variosDiscos: some View {
+        let listos = state.config.disks.filter { state.canSync($0) }
+        if listos.count > 1 {
+            FilaDeMenu(L("Sincronizar los %@ discos", "\(listos.count)"), key: "s") {
+                dismiss()
+                state.syncAll()
+            }
+            Divider().padding(.vertical, 3)
+        }
+
+        ForEach(state.config.disks) { d in
+            Text(d.volumeName.isEmpty ? L("Disco sin nombre") : d.volumeName)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6)
+                .padding(.top, 4)
+            Text(pieDe(d))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 6)
+                .padding(.bottom, 2)
+
+            if state.isConnected(d) {
+                FilaDeMenu(L("Sincronizar ahora"), enabled: state.canSync(d)) {
+                    dismiss()
+                    state.sync(d)
+                }
+                FilaDeMenu(L("Abrir el disco")) {
+                    dismiss()
+                    if let v = state.volume(of: d) { NSWorkspace.shared.open(v.url) }
+                }
+                FilaDeMenu(state.working == d.id ? L("Detener y expulsar el disco") : L("Expulsar el disco"),
+                           enabled: !state.ejecting.contains(d.id)) {
+                    dismiss()
+                    state.stopAndEject(d)
+                }
+            }
+        }
+    }
+
+    /// En dos palabras, qué le pasa a este disco: es lo que sustituye al
+    /// «Sincronizar ahora» a secas cuando hay más de uno.
+    private func pieDe(_ d: DiskProfile) -> String {
+        if state.working == d.id { return L("Copiando…") }
+        if state.queued.contains(d.id) { return L("En espera") }
+        switch state.status(of: d) {
+        case .fallo(let m): return m
+        case .sinDisco:     return L("no conectado")
+        default:
+            let problemas = state.config.problems(of: d)
+            if let p = problemas.first { return p }
+            return d.autoSyncOnMount ? L("Se sincroniza solo al conectarlo") : L("conectado")
+        }
+    }
+
+    private func conectado(_ d: DiskProfile?) -> VolumeInfo? {
+        guard let d else { return nil }
+        return state.volume(of: d)
     }
 
     /// Cerrar el panel, sacar la app de la barra de menús y abrir la ventana,
@@ -121,15 +206,23 @@ struct MenuView: View {
 
     // MARK: Cómo se dice el estado
 
+    /// El disco del que habla la cabecera: el que está copiando, o el primero
+    /// que esté puesto, o el primero que haya.
+    private var enPantalla: DiskProfile? {
+        if let w = state.working, let d = state.config[w] { return d }
+        return state.config.disks.first { state.isConnected($0) } ?? state.config.disks.first
+    }
+
     private var tituloDelEstado: String {
         switch state.status {
         case .sinDisco:
-            return state.config.volumeName.isEmpty
-                ? L("Sin disco elegido")
-                : L("%@ no está conectado", state.config.volumeName)
+            guard let d = enPantalla, !d.volumeName.isEmpty else { return L("Sin disco elegido") }
+            return L("%@ no está conectado", d.volumeName)
         case .listo(let v):   return L("%@ conectado", v)
         case .comparando:     return L("Comparando…")
-        case .copiando:       return L("Copiando…")
+        case .copiando:
+            guard let d = enPantalla, !d.volumeName.isEmpty else { return L("Copiando…") }
+            return L("Copiando en %@…", d.volumeName)
         case .fallo:          return L("No se pudo sincronizar")
         }
     }
@@ -137,13 +230,14 @@ struct MenuView: View {
     private var subtituloDelEstado: String? {
         switch state.status {
         case .sinDisco:
-            return state.config.volumeName.isEmpty
+            return enPantalla == nil
                 ? L("Elige el disco en los ajustes")
                 : L("Se sincronizará al conectarlo")
         case .listo:
-            let problemas = state.config.problems()
+            guard let d = enPantalla else { return nil }
+            let problemas = state.config.problems(of: d)
             if !problemas.isEmpty { return problemas.first }
-            return state.config.autoSyncOnMount ? L("Se sincroniza solo al conectarlo") : nil
+            return d.autoSyncOnMount ? L("Se sincroniza solo al conectarlo") : nil
         case .fallo(let m): return m
         default: return nil
         }

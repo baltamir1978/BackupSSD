@@ -70,7 +70,7 @@ enum Volumes {
     /// otra el disco puede haberse desmontado y haber llegado otro al mismo
     /// `/Volumes/SSD-T7`; escribir ahí sería copiar en el disco de un
     /// desconocido, y retirar de él lo que no está en el Mac.
-    static func backupRoot(config: Config) throws -> URL {
+    static func backupRoot(config: DiskProfile) throws -> URL {
         guard let vol = find(uuid: config.volumeUUID) else {
             throw SyncError.noDestination(config.volumeName)
         }

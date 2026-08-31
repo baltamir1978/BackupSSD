@@ -60,7 +60,7 @@ private struct IconoDeLaBarra: View {
                 // quedaría en la barra sin hacer nada y sin decir por dónde
                 // empezar. Se abren los ajustes solos la primera vez —y
                 // mientras siga sin configurar, que es cuando hace falta.
-                guard state.config.volumeUUID.isEmpty, state.config.folders.isEmpty else { return }
+                guard state.config.disks.isEmpty else { return }
                 WindowOpener.activate()
                 openWindow(id: "ajustes")
                 WindowOpener.bringToFront(titled: L("Ajustes de Backup SSD"))
@@ -117,9 +117,8 @@ extension AppState {
     var accessibilityStatus: String {
         switch status {
         case .sinDisco:
-            return config.volumeName.isEmpty
-                ? L("Sin disco elegido")
-                : L("%@ no está conectado", config.volumeName)
+            guard let d = config.disks.first, !d.volumeName.isEmpty else { return L("Sin disco elegido") }
+            return L("%@ no está conectado", d.volumeName)
         case .listo(let v):  return L("%@ conectado", v)
         case .comparando:    return L("Comparando…")
         case .copiando(let hechos, let total, _):

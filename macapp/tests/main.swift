@@ -59,9 +59,10 @@ final class Sandbox {
         try? String(contentsOf: (base ?? disco).appendingPathComponent(rel), encoding: .utf8)
     }
 
-    /// Config apuntando a este sandbox, con una sola carpeta llamada «datos».
-    func config(keepRemoved: Bool = true, excludes: [String]? = nil, retention: Int = 90) -> Config {
-        var c = Config()
+    /// La configuración de este sandbox como disco, con una sola carpeta
+    /// llamada «datos».
+    func config(keepRemoved: Bool = true, excludes: [String]? = nil, retention: Int = 90) -> DiskProfile {
+        var c = DiskProfile()
         c.volumeUUID = "de-mentira"
         c.folders = [SyncFolder(source: origen.path, name: "datos")]
         c.keepRemoved = keepRemoved
@@ -71,7 +72,7 @@ final class Sandbox {
     }
 }
 
-func run(_ sb: Sandbox, _ cfg: Config, dryRun: Bool = false) -> SyncReport {
+func run(_ sb: Sandbox, _ cfg: DiskProfile, dryRun: Bool = false) -> SyncReport {
     let motor = SyncEngine()
     do { return try motor.run(config: cfg, root: sb.disco, dryRun: dryRun) }
     catch { fallos.append("lanzó \(error)"); print("  ✗ lanzó \(error)"); return SyncReport() }
@@ -316,59 +317,6 @@ test("El espacio libre se lee bien en cualquier disco montado") {
     }
 }
 
-// Git le pone la bandera «no me toques» (uchg, la de «Bloqueado» del Finder) a
-// todos los objetos de sus repositorios. `copyItem` se la copiaba al archivo
-// temporal, y entonces el temporal no se dejaba renombrar: cada .git se
-// quedaba fuera del backup y dejaba detrás un `.bssd-parcial` imborrable.
-test("Un archivo bloqueado se copia igual") {
-    let sb = Sandbox("bloqueado")
-    let f = sb.write("intocable.txt", "no me toques")
-    let libre = sb.write("normal.txt", "yo sí")
-    try? FileManager.default.setAttributes([.immutable: true], ofItemAtPath: f.path)
-    defer { try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: f.path) }
-    _ = libre
-
-    let r = run(sb, sb.config())
-    checkEq(r.errors.count, 0, "sin errores")
-    checkEq(r.copied, 2, "copia los dos")
-    checkEq(sb.read("datos/intocable.txt"), "no me toques", "y el bloqueado llega entero")
-
-    // Y no deja basura: un `.bssd-parcial` bloqueado en el disco no se podría
-    // ni borrar en la pasada siguiente.
-    let dentro = (try? FileManager.default.contentsOfDirectory(atPath: sb.disco.appendingPathComponent("datos").path)) ?? []
-    check(!dentro.contains { $0.hasSuffix(".bssd-parcial") }, "sin trozos a medias en el disco")
-
-    // La copia del backup no hereda el candado: si lo heredara, la siguiente
-    // pasada no podría ni actualizarla ni retirarla.
-    let copia = sb.disco.appendingPathComponent("datos/intocable.txt").path
-    let attrs = try? FileManager.default.attributesOfItem(atPath: copia)
-    checkEq(attrs?[.immutable] as? Bool ?? false, false, "y la copia se puede volver a tocar")
-}
-
-test("Un archivo bloqueado que cambia se actualiza, y si se borra se retira") {
-    let sb = Sandbox("bloqueado-2")
-    let f = sb.write("acta.txt", "versión 1")
-    try? FileManager.default.setAttributes([.immutable: true], ofItemAtPath: f.path)
-    _ = run(sb, sb.config())
-
-    // Segunda versión, otra vez bloqueada.
-    try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: f.path)
-    sb.write("acta.txt", "versión 2 mucho más larga que la primera")
-    try? FileManager.default.setAttributes([.immutable: true], ofItemAtPath: f.path)
-
-    let r2 = run(sb, sb.config())
-    checkEq(r2.errors.count, 0, "la actualización no da error")
-    checkEq(sb.read("datos/acta.txt"), "versión 2 mucho más larga que la primera", "y se sustituye")
-
-    // Y ahora se borra del Mac: hay que poder retirarla del disco.
-    try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: f.path)
-    try? FileManager.default.removeItem(at: f)
-    let r3 = run(sb, sb.config())
-    checkEq(r3.errors.count, 0, "la retirada tampoco da error")
-    checkEq(r3.retired, 1, "se retira")
-    check(!sb.exists("datos/acta.txt"), "y ya no está en el disco")
-}
-
 test("Lo que aparece en el disco por su cuenta se retira") {
     let sb = Sandbox("intruso")
     sb.write("mio.txt", "1")
@@ -599,8 +547,8 @@ func hayEnElMac(_ sb: Sandbox, _ rel: String) -> Bool {
     fm.fileExists(atPath: sb.origen.appendingPathComponent(rel).path)
 }
 
-/// Config con una sola carpeta, en modo mover, que se lleva todo el origen.
-func configMover(_ sb: Sandbox) -> Config {
+/// Un disco con una sola carpeta, en modo mover, que se lleva todo el origen.
+func configMover(_ sb: Sandbox) -> DiskProfile {
     var c = sb.config()
     c.folders = [SyncFolder(source: sb.origen.path, name: "datos", mode: .move)]
     return c
@@ -812,7 +760,7 @@ test("Buscar por UUID: encuentra el que es y sólo ese") {
 // Si esto fallara y devolviera algo, el motor escribiría —y retiraría— en un
 // sitio que no es el disco de backup.
 test("Sin el disco puesto no hay ruta de destino que valga") {
-    var c = Config()
+    var c = DiskProfile()
     c.volumeUUID = ""
     var lanzo = false
     do { _ = try Volumes.backupRoot(config: c) } catch { lanzo = true }
@@ -829,7 +777,7 @@ test("La raíz del backup cuelga del disco y de su carpeta") {
     guard let arranque = Volumes.info(of: URL(fileURLWithPath: "/")) else {
         check(false, "hacía falta el disco de arranque"); return
     }
-    var c = Config()
+    var c = DiskProfile()
     c.volumeUUID = arranque.uuid
     c.rootFolder = "Mi-Backup"
     let ruta = try? Volumes.backupRoot(config: c)
@@ -841,6 +789,214 @@ test("La raíz del backup cuelga del disco y de su carpeta") {
     c.rootFolder = "   "
     checkEq((try? Volumes.backupRoot(config: c))?.lastPathComponent, "Backup-SSD",
             "una carpeta en blanco cae al valor de siempre, no a la raíz del disco")
+}
+
+// MARK: - Archivos bloqueados
+
+// Git le pone la bandera «no me toques» (uchg, la de «Bloqueado» del Finder) a
+// todos los objetos de sus repositorios. `copyItem` se la copiaba al archivo
+// temporal, y entonces el temporal no se dejaba renombrar: cada .git se
+// quedaba fuera del backup y dejaba detrás un `.bssd-parcial` imborrable.
+test("Un archivo bloqueado se copia igual") {
+    let sb = Sandbox("bloqueado")
+    let f = sb.write("intocable.txt", "no me toques")
+    let libre = sb.write("normal.txt", "yo sí")
+    try? FileManager.default.setAttributes([.immutable: true], ofItemAtPath: f.path)
+    defer { try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: f.path) }
+    _ = libre
+
+    let r = run(sb, sb.config())
+    checkEq(r.errors.count, 0, "sin errores")
+    checkEq(r.copied, 2, "copia los dos")
+    checkEq(sb.read("datos/intocable.txt"), "no me toques", "y el bloqueado llega entero")
+
+    // Y no deja basura: un `.bssd-parcial` bloqueado en el disco no se podría
+    // ni borrar en la pasada siguiente.
+    let dentro = (try? FileManager.default.contentsOfDirectory(atPath: sb.disco.appendingPathComponent("datos").path)) ?? []
+    check(!dentro.contains { $0.hasSuffix(".bssd-parcial") }, "sin trozos a medias en el disco")
+
+    // La copia del backup no hereda el candado: si lo heredara, la siguiente
+    // pasada no podría ni actualizarla ni retirarla.
+    let copia = sb.disco.appendingPathComponent("datos/intocable.txt").path
+    let attrs = try? FileManager.default.attributesOfItem(atPath: copia)
+    checkEq(attrs?[.immutable] as? Bool ?? false, false, "y la copia se puede volver a tocar")
+}
+
+test("Un archivo bloqueado que cambia se actualiza, y si se borra se retira") {
+    let sb = Sandbox("bloqueado-2")
+    let f = sb.write("acta.txt", "versión 1")
+    try? FileManager.default.setAttributes([.immutable: true], ofItemAtPath: f.path)
+    _ = run(sb, sb.config())
+
+    // Segunda versión, otra vez bloqueada.
+    try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: f.path)
+    sb.write("acta.txt", "versión 2 mucho más larga que la primera")
+    try? FileManager.default.setAttributes([.immutable: true], ofItemAtPath: f.path)
+
+    let r2 = run(sb, sb.config())
+    checkEq(r2.errors.count, 0, "la actualización no da error")
+    checkEq(sb.read("datos/acta.txt"), "versión 2 mucho más larga que la primera", "y se sustituye")
+
+    // Y ahora se borra del Mac: hay que poder retirarla del disco.
+    try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: f.path)
+    try? FileManager.default.removeItem(at: f)
+    let r3 = run(sb, sb.config())
+    checkEq(r3.errors.count, 0, "la retirada tampoco da error")
+    checkEq(r3.retired, 1, "se retira")
+    check(!sb.exists("datos/acta.txt"), "y ya no está en el disco")
+}
+
+// MARK: - Varios discos
+
+// Lo que más puede doler de todo el cambio a varios discos: que al leer el
+// archivo de siempre se pierda por el camino lo que había configurado. Si eso
+// pasara, la app arrancaría sin carpetas y parecería que se ha perdido todo.
+test("La configuración de un solo disco se lee como el primer disco de la lista") {
+    // Tal cual lo escribía la versión anterior: sin «disks», con el disco y
+    // las carpetas colgando de la raíz del JSON.
+    let v1 = """
+    {
+      "appearance" : "dark",
+      "autoSyncOnMount" : true,
+      "excludes" : [".DS_Store", "node_modules"],
+      "folders" : [
+        { "enabled" : true, "mode" : "sync", "name" : "Documents", "source" : "/Users/x/Documents" },
+        { "enabled" : true, "mode" : "move", "name" : "Casero", "source" : "/Users/x/Pictures/Casero" }
+      ],
+      "keepRemoved" : true,
+      "removedRetentionDays" : 45,
+      "rootFolder" : "Backup",
+      "skipUndownloadediCloud" : true,
+      "volumeName" : "Extreme SSD",
+      "volumeUUID" : "041C9F91-7107-33B0-B75E-B79F1FE79859"
+    }
+    """.data(using: .utf8)!
+
+    guard let cfg = try? JSONDecoder().decode(Config.self, from: v1) else {
+        check(false, "el archivo de antes se decodifica"); return
+    }
+    checkEq(cfg.disks.count, 1, "sale un disco")
+    guard let d = cfg.disks.first else { return }
+    checkEq(d.volumeUUID, "041C9F91-7107-33B0-B75E-B79F1FE79859", "con su UUID")
+    checkEq(d.volumeName, "Extreme SSD", "con su nombre")
+    checkEq(d.rootFolder, "Backup", "con su carpeta raíz")
+    checkEq(d.folders.count, 2, "con sus dos carpetas")
+    checkEq(d.folders.first?.name, "Documents", "la primera, entera")
+    checkEq(d.folders.last?.mode, .move, "y el modo mover no se pierde")
+    checkEq(d.removedRetentionDays, 45, "y los días de retirados tampoco")
+    checkEq(d.excludes.count, 2, "y las exclusiones que había, ni una más")
+    checkEq(cfg.appearance, .dark, "la apariencia sube a la configuración de la app")
+    check(cfg.migratedFromV1, "y queda dicho que venía del formato de antes")
+}
+
+test("Una configuración nueva del todo no se toma por una migración") {
+    let vacia = "{ \"appearance\" : \"system\" }".data(using: .utf8)!
+    let cfg = try? JSONDecoder().decode(Config.self, from: vacia)
+    checkEq(cfg?.disks.count, 0, "no se inventa un disco en blanco")
+    checkEq(cfg?.migratedFromV1, false, "ni dice que haya migrado nada")
+}
+
+test("El formato de varios discos se lee sin tocarlo") {
+    let v2 = """
+    {
+      "appearance" : "system",
+      "disks" : [
+        { "volumeUUID" : "AAA", "volumeName" : "Uno", "rootFolder" : "Backup", "folders" : [] },
+        { "volumeUUID" : "BBB", "volumeName" : "Dos", "rootFolder" : "Copias", "folders" : [] }
+      ]
+    }
+    """.data(using: .utf8)!
+    guard let cfg = try? JSONDecoder().decode(Config.self, from: v2) else {
+        check(false, "se decodifica"); return
+    }
+    checkEq(cfg.disks.count, 2, "salen los dos discos")
+    checkEq(cfg.disk(uuid: "BBB")?.rootFolder, "Copias", "cada uno con su carpeta raíz")
+    check(cfg.disks[0].id != cfg.disks[1].id, "y con identidades distintas aunque el archivo no las traiga")
+    check(!cfg.migratedFromV1, "no hay nada que migrar")
+}
+
+test("Ida y vuelta: lo que se guarda se vuelve a leer igual") {
+    var cfg = Config()
+    var uno = DiskProfile()
+    uno.volumeUUID = "AAA"; uno.volumeName = "Uno"; uno.rootFolder = "Backup"
+    uno.folders = [SyncFolder(source: "/tmp/a", name: "a")]
+    var dos = DiskProfile()
+    dos.volumeUUID = "BBB"; dos.volumeName = "Dos"; dos.removedRetentionDays = 7
+    cfg.disks = [uno, dos]
+    cfg.appearance = .light
+
+    guard let data = try? JSONEncoder().encode(cfg),
+          let leida = try? JSONDecoder().decode(Config.self, from: data) else {
+        check(false, "se codifica y se decodifica"); return
+    }
+    checkEq(leida.disks.count, 2, "siguen siendo dos")
+    checkEq(leida.disks.first?.id, uno.id, "y cada uno conserva su identidad")
+    checkEq(leida.disk(uuid: "BBB")?.removedRetentionDays, 7, "con lo suyo intacto")
+    checkEq(leida.appearance, .light, "y la apariencia de la app")
+}
+
+test("Dos discos pueden copiar las mismas carpetas sin pisarse") {
+    let sb = Sandbox("dos-discos")
+    sb.write("informe.txt", "el mismo archivo para los dos")
+    sb.write("hondo/nota.md", "y uno más adentro")
+
+    let disco2 = sb.root.appendingPathComponent("disco2")
+    try? FileManager.default.createDirectory(at: disco2, withIntermediateDirectories: true)
+
+    // La misma carpeta de origen, con el mismo nombre de destino: es el caso
+    // que se quiere, un portátil que se copia entero a dos discos distintos.
+    var a = sb.config()
+    a.volumeUUID = "AAA"
+    var b = sb.config()
+    b.volumeUUID = "BBB"
+
+    let ra = run(sb, a)
+    let motor = SyncEngine()
+    let rb = (try? motor.run(config: b, root: disco2)) ?? SyncReport()
+
+    checkEq(ra.copied, 2, "el primero copia los dos archivos")
+    checkEq(rb.copied, 2, "y el segundo también, sin enterarse del primero")
+    checkEq(ra.retired, 0, "ninguno retira nada")
+    checkEq(rb.retired, 0, "el segundo tampoco")
+    check(sb.exists("datos/informe.txt"), "está en el primer disco")
+    check(FileManager.default.fileExists(atPath: disco2.appendingPathComponent("datos/informe.txt").path),
+          "y está en el segundo")
+
+    // Y la segunda pasada de cada uno no deshace lo del otro.
+    let ra2 = run(sb, a)
+    checkEq(ra2.retired, 0, "la segunda pasada del primero no retira nada")
+    checkEq(ra2.copied + ra2.updated, 0, "ni vuelve a copiar lo que ya estaba")
+}
+
+test("Dos configuraciones para el mismo disco se avisan") {
+    var cfg = Config()
+    var uno = DiskProfile()
+    uno.volumeUUID = "AAA"
+    uno.folders = [SyncFolder(source: NSTemporaryDirectory(), name: "tmp")]
+    var dos = uno
+    dos.id = UUID()          // otro perfil, el mismo disco
+    cfg.disks = [uno, dos]
+
+    check(cfg.problems(of: uno).contains { $0.contains("mismo disco") },
+          "se dice que hay otra configuración para ese disco")
+
+    // Y un disco solo, con lo suyo en orden, no se queja de nada.
+    cfg.disks = [uno]
+    checkEq(cfg.problems(of: uno).count, 0, "uno solo no se queja")
+}
+
+test("Los problemas de un disco no manchan al otro") {
+    var bueno = DiskProfile()
+    bueno.volumeUUID = "AAA"
+    bueno.folders = [SyncFolder(source: NSTemporaryDirectory(), name: "tmp")]
+    var malo = DiskProfile()
+    malo.volumeUUID = "BBB"
+    malo.folders = [SyncFolder(source: "/no/existe/esta/carpeta", name: "fantasma")]
+
+    var cfg = Config()
+    cfg.disks = [bueno, malo]
+    checkEq(cfg.problems(of: bueno).count, 0, "el que está bien puede sincronizar")
+    check(!cfg.problems(of: malo).isEmpty, "y el que no, no")
 }
 
 // MARK: - Historial

@@ -1,5 +1,9 @@
 // La ventana: las carpetas que se copian, lo que está pasando ahora y lo que
 // pasó las veces anteriores.
+//
+// Todo lo de aquí es de **un** disco: el que esté elegido arriba. Con varios
+// configurados, el selector de la cabecera es lo primero que hay que mirar,
+// porque las carpetas, los avisos y los botones son los suyos.
 
 import SwiftUI
 import UniformTypeIdentifiers
@@ -13,51 +17,105 @@ struct MainWindowView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            cabecera
-            Divider()
-            Picker("", selection: $pestana) {
-                Text("Carpetas").tag(Pestana.carpetas)
-                Text("Historial").tag(Pestana.historial)
-                Text("Registro").tag(Pestana.registro)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(10)
+            if let d = state.selectedDisk {
+                cabecera(d)
+                Divider()
+                Picker("", selection: $pestana) {
+                    Text("Carpetas").tag(Pestana.carpetas)
+                    Text("Historial").tag(Pestana.historial)
+                    Text("Registro").tag(Pestana.registro)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(10)
 
-            switch pestana {
-            case .carpetas:  carpetas
-            case .historial: historial
-            case .registro:  registro
+                switch pestana {
+                case .carpetas:  carpetas(d)
+                case .historial: historial
+                case .registro:  registro
+                }
+            } else {
+                sinDiscos
             }
         }
         .frame(minWidth: 620, minHeight: 460)
         .onDrop(of: [.fileURL], isTargeted: nil) { proveedores in
-            recibir(proveedores)
+            guard let d = state.selectedDisk else { return false }
+            recibir(proveedores, en: d.id)
             return true
         }
+        // Al cambiar de disco, lo seleccionado era de las carpetas del otro.
+        .onChange(of: state.selectedDisk?.id) { _ in seleccion = [] }
+    }
+
+    /// Un enlace de ida y vuelta al disco elegido, para poder editar sus
+    /// carpetas con `$`.
+    private func enlace(_ id: UUID) -> Binding<DiskProfile> {
+        Binding(
+            get: { state.config[id] ?? DiskProfile() },
+            set: { state.config[id] = $0 }
+        )
+    }
+
+    // MARK: Cuando todavía no hay discos
+
+    private var sinDiscos: some View {
+        VStack(spacing: 10) {
+            Spacer()
+            Image(systemName: "externaldrive.badge.plus")
+                .font(.system(size: 44))
+                .foregroundStyle(.tertiary)
+            Text("Todavía no hay ningún disco configurado")
+                .font(.system(.body, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text("Enchufa el disco donde quieras hacer la copia y añádelo en los ajustes. Puedes tener varios, cada uno con sus carpetas.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 340)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: Cabecera
 
-    private var cabecera: some View {
+    private func cabecera(_ d: DiskProfile) -> some View {
         HStack(alignment: .center, spacing: 12) {
-            Image(systemName: state.menuIcon)
+            Image(systemName: icono(d))
                 .font(.system(.largeTitle))
-                .foregroundStyle(state.volume != nil ? Color.accentColor : .secondary)
+                .foregroundStyle(state.isConnected(d) ? Color.accentColor : .secondary)
                 .frame(width: 34)
                 // El texto de al lado ya dice el estado; el icono repetiría.
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(titulo).font(.system(.headline))
-                Text(subtitulo).font(.caption).foregroundStyle(.secondary)
+                if state.config.disks.count > 1 {
+                    // Con varios discos el título no basta: hay que poder
+                    // cambiar de uno a otro sin ir a los ajustes.
+                    Picker("", selection: Binding(
+                        get: { state.selectedDisk?.id },
+                        set: { state.selectedDiskID = $0 }
+                    )) {
+                        ForEach(state.config.disks) { otro in
+                            Text(etiqueta(otro)).tag(Optional(otro.id))
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                    .accessibilityLabel(L("Disco"))
+                }
+                Text(titulo(d)).font(.system(.headline))
+                Text(subtitulo(d)).font(.caption).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             }
 
             Spacer()
 
-            if state.status.esTrabajando {
-                if case .copiando(let hechos, let total, _) = state.status {
+            let estado = state.status(of: d)
+            if estado.esTrabajando {
+                if case .copiando(let hechos, let total, _) = estado {
                     ProgressView(value: Double(hechos), total: Double(max(total, 1)))
                         .frame(width: 150)
                 } else {
@@ -65,43 +123,59 @@ struct MainWindowView: View {
                 }
                 Button("Detener") { state.cancel() }
                     .help("Para en cuanto acabe el archivo que tiene entre manos.")
-                Button("Detener y expulsar") { state.stopAndEject() }
-                    .disabled(state.ejecting)
+                Button("Detener y expulsar") { state.stopAndEject(d) }
+                    .disabled(state.ejecting.contains(d.id))
                     .help("Para la copia y suelta el disco para poder desconectarlo.")
             } else {
-                Button("Expulsar") { state.stopAndEject() }
-                    .disabled(state.volume == nil || state.ejecting)
+                Button("Expulsar") { state.stopAndEject(d) }
+                    .disabled(!state.isConnected(d) || state.ejecting.contains(d.id))
                     .help("Suelta el disco para poder desconectarlo sin riesgo.")
-                Button("Ensayo") { state.sync(dryRun: true) }
-                    .disabled(!state.canSync)
+                Button("Ensayo") { state.sync(d, dryRun: true) }
+                    .disabled(!state.canSync(d))
                     .help("Cuenta lo que haría, sin escribir nada en el disco.")
-                Button("Sincronizar ahora") { state.sync() }
+                Button("Sincronizar ahora") { state.sync(d) }
                     .keyboardShortcut("s")
-                    .disabled(!state.canSync)
+                    .disabled(!state.canSync(d))
             }
         }
         .padding(14)
     }
 
-    private var titulo: String {
-        switch state.status {
+    private func etiqueta(_ d: DiskProfile) -> String {
+        let nombre = d.volumeName.isEmpty ? L("Disco sin nombre") : d.volumeName
+        return state.isConnected(d) ? nombre : nombre + " " + L("(no conectado)")
+    }
+
+    private func icono(_ d: DiskProfile) -> String {
+        switch state.status(of: d) {
+        case .copiando, .comparando: return "arrow.triangle.2.circlepath"
+        case .fallo:                 return "externaldrive.badge.exclamationmark"
+        case .listo:                 return "externaldrive.fill.badge.checkmark"
+        case .sinDisco:              return "externaldrive"
+        }
+    }
+
+    private func titulo(_ d: DiskProfile) -> String {
+        switch state.status(of: d) {
         case .listo(let v):  return L("%@ conectado", v)
         case .comparando:    return L("Comparando el Mac con el disco…")
         case .copiando:      return L("Copiando…")
         case .fallo:         return L("No se pudo sincronizar")
         case .sinDisco:
-            return state.config.volumeName.isEmpty
+            return d.volumeName.isEmpty
                 ? L("Todavía no hay ningún disco elegido")
-                : L("%@ no está conectado", state.config.volumeName)
+                : L("%@ no está conectado", d.volumeName)
         }
     }
 
-    private var subtitulo: String {
-        if case .copiando(_, _, let actual) = state.status { return actual }
-        if case .fallo(let m) = state.status { return m }
-        let problemas = state.config.problems()
+    private func subtitulo(_ d: DiskProfile) -> String {
+        let estado = state.status(of: d)
+        if case .copiando(_, _, let actual) = estado { return actual }
+        if case .fallo(let m) = estado { return m }
+        if state.queued.contains(d.id) { return L("Esperando a que acabe el otro disco…") }
+        let problemas = state.config.problems(of: d)
         if !problemas.isEmpty { return problemas.joined(separator: " · ") }
-        if let u = state.lastSync {
+        if let u = state.lastSync(of: d) {
             return L("Última vez: %1$@ — %2$@", u.date.formatted(date: .abbreviated, time: .shortened), u.summary)
         }
         return L("Nunca se ha sincronizado.")
@@ -109,14 +183,15 @@ struct MainWindowView: View {
 
     // MARK: Carpetas
 
-    private var carpetas: some View {
-        VStack(spacing: 0) {
-            if state.config.folders.isEmpty {
+    private func carpetas(_ d: DiskProfile) -> some View {
+        let disco = enlace(d.id)
+        return VStack(spacing: 0) {
+            if d.folders.isEmpty {
                 vacio("Arrastra aquí las carpetas que quieras copiar al disco",
                       "También puedes añadirlas con el botón +")
             } else {
                 List(selection: $seleccion) {
-                    ForEach($state.config.folders) { $f in
+                    ForEach(disco.folders) { $f in
                         HStack(spacing: 10) {
                             Toggle("", isOn: $f.enabled)
                                 .labelsHidden()
@@ -132,7 +207,7 @@ struct MainWindowView: View {
                                 // anidadas ya no se puede adivinar mirando el
                                 // nombre, y en modo mover conviene verlo bien
                                 // claro antes de que se vacíe nada.
-                                Text(L("En el disco: %@", destinoDe(f)))
+                                Text(L("En el disco: %@", destinoDe(f, en: d)))
                                     .font(.caption2)
                                     .foregroundStyle(.tertiary)
                                     .lineLimit(1)
@@ -168,19 +243,22 @@ struct MainWindowView: View {
             Divider()
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
-                    Button { anadir() } label: { Image(systemName: "plus") }
+                    Button { anadir(a: d.id) } label: { Image(systemName: "plus") }
                         .help("Añadir una carpeta")
                         .accessibilityLabel("Añadir una carpeta")
-                    Button { state.removeFolders(seleccion); seleccion = [] } label: { Image(systemName: "minus") }
+                    Button {
+                        state.removeFolders(seleccion, from: d.id); seleccion = []
+                    } label: { Image(systemName: "minus") }
                         .disabled(seleccion.isEmpty)
                         .help("Quitar la carpeta de la lista. No borra nada del disco.")
                         .accessibilityLabel("Quitar la carpeta de la lista. No borra nada del disco.")
                     Spacer()
-                    Text(resumenDeCarpetas).font(.caption).foregroundStyle(.secondary)
+                    Text(resumenDeCarpetas(d)).font(.caption).foregroundStyle(.secondary)
                 }
                 // El modo mover es lo único de este programa que borra algo del
                 // Mac. Se dice aquí, siempre a la vista mientras esté activo, y
                 // no sólo en la ayudita del menú que hay que ir a buscar.
+                let seVacian = d.folders.filter { $0.enabled && $0.mode == .move }.count
                 if seVacian > 0 {
                     Label(L("%@ se vacían al disco: lo que hay dentro se copia y se borra del Mac.",
                             plural("%ld carpetas", seVacian)),
@@ -193,14 +271,9 @@ struct MainWindowView: View {
         }
     }
 
-    /// Cuántas carpetas activas se llevan su contenido al disco.
-    private var seVacian: Int {
-        state.config.folders.filter { $0.enabled && $0.mode == .move }.count
-    }
-
-    private var resumenDeCarpetas: String {
-        let activas = state.config.folders.filter(\.enabled).count
-        let total = state.config.folders.count
+    private func resumenDeCarpetas(_ d: DiskProfile) -> String {
+        let activas = d.folders.filter(\.enabled).count
+        let total = d.folders.count
         if total == 0 { return "" }
         return activas == total ? plural("%ld carpetas", total) : L("%1$@ de %2$@ activas", "\(activas)", "\(total)")
     }
@@ -293,15 +366,16 @@ struct MainWindowView: View {
     }
 
     /// Dónde acaba esta carpeta dentro del disco, contando desde la raíz del
-    /// backup. Se calcula igual que en el motor, pasando por la configuración,
-    /// para que lo que se enseña aquí no pueda separarse de lo que se hace.
-    private func destinoDe(_ f: SyncFolder) -> String {
-        let raiz = state.config.rootFolder.trimmingCharacters(in: .whitespaces)
+    /// backup. Se calcula igual que en el motor, pasando por la configuración
+    /// del disco, para que lo que se enseña aquí no pueda separarse de lo que
+    /// se hace.
+    private func destinoDe(_ f: SyncFolder, en d: DiskProfile) -> String {
+        let raiz = d.rootFolder.trimmingCharacters(in: .whitespaces)
         let bajo = URL(fileURLWithPath: "/" + (raiz.isEmpty ? "Backup-SSD" : raiz))
-        return String(state.config.destination(of: f, under: bajo).path.dropFirst())
+        return String(d.destination(of: f, under: bajo).path.dropFirst())
     }
 
-    private func anadir() {
+    private func anadir(a id: UUID) {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -309,18 +383,18 @@ struct MainWindowView: View {
         panel.prompt = "Añadir"
         panel.message = "Elige las carpetas del Mac que quieres copiar al disco."
         if panel.runModal() == .OK {
-            for url in panel.urls { state.addFolder(url) }
+            for url in panel.urls { state.addFolder(url, to: id) }
         }
     }
 
-    private func recibir(_ proveedores: [NSItemProvider]) {
+    private func recibir(_ proveedores: [NSItemProvider], en id: UUID) {
         for p in proveedores {
             _ = p.loadObject(ofClass: URL.self) { url, _ in
                 guard let url else { return }
                 var esDir: ObjCBool = false
                 guard FileManager.default.fileExists(atPath: url.path, isDirectory: &esDir),
                       esDir.boolValue else { return }
-                DispatchQueue.main.async { state.addFolder(url) }
+                DispatchQueue.main.async { state.addFolder(url, to: id) }
             }
         }
     }
