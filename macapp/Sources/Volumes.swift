@@ -72,7 +72,7 @@ enum Volumes {
     /// desconocido, y retirar de él lo que no está en el Mac.
     static func backupRoot(config: Config) throws -> URL {
         guard let vol = find(uuid: config.volumeUUID) else {
-            throw SyncError.noDestination(config.volumeName.isEmpty ? "del disco" : config.volumeName)
+            throw SyncError.noDestination(config.volumeName)
         }
         guard let ahora = info(of: vol.url), ahora.uuid == config.volumeUUID else {
             throw SyncError.wrongVolume(expected: config.volumeName,

@@ -68,8 +68,10 @@ enum SyncError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noDestination(let p):
-            return L("El disco no está montado o la carpeta %@ no existe.", p)
+        case .noDestination(let disco):
+            return disco.isEmpty
+                ? L("El disco de siempre no está montado.")
+                : L("El disco %@ no está montado.", disco)
         case .wrongVolume(let e, let f):
             return L("Ese no es el disco de siempre: se esperaba %1$@ y hay %2$@. No se ha tocado nada.", e, f)
         case .notEnoughSpace(let n, let f):
@@ -258,10 +260,13 @@ final class SyncEngine: @unchecked Sendable {
         let started = Date()
         var report = SyncReport()
 
-        guard fm.fileExists(atPath: root.path) || !dryRun else {
-            throw SyncError.noDestination(root.path)
-        }
-        if !fm.fileExists(atPath: root.path) {
+        // La raíz se crea si no está, pero sólo cuando se va a copiar de
+        // verdad. Que no exista es lo normal la primera vez —el disco todavía
+        // no tiene nada de esta app—, y no es motivo para no dejar hacer un
+        // ensayo: cada carpeta ya se apaña con un destino que no existe y lo
+        // planifica como «copiar todo». Crearla en un ensayo sería escribir en
+        // el disco justo cuando se ha pedido que no se escriba.
+        if !fm.fileExists(atPath: root.path), !dryRun {
             try fm.createDirectory(at: root, withIntermediateDirectories: true)
         }
 

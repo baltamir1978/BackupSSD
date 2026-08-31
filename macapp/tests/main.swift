@@ -283,6 +283,20 @@ test("Ensayo: cuenta lo que haría y no toca el disco") {
     check(!sb.exists("datos"), "ni ha creado la carpeta de destino")
 }
 
+test("Ensayo con el disco todavía sin la carpeta raíz") {
+    // La primera vez el disco no tiene nada de esta app. Un ensayo tiene que
+    // poder decir lo que copiaría —y no crear la carpeta para averiguarlo—,
+    // que es justo cuando más falta hace mirar antes de tocar nada.
+    let sb = Sandbox("ensayo-sin-raiz")
+    sb.write("a.txt", "1")
+    try? FileManager.default.removeItem(at: sb.disco)
+
+    let r = run(sb, sb.config(), dryRun: true)
+    checkEq(r.errors.count, 0, "no se queja de que falte la raíz")
+    checkEq(r.copied, 1, "y cuenta lo que copiaría")
+    check(!FileManager.default.fileExists(atPath: sb.disco.path), "la raíz sigue sin crearse")
+}
+
 test("Lo que aparece en el disco por su cuenta se retira") {
     let sb = Sandbox("intruso")
     sb.write("mio.txt", "1")

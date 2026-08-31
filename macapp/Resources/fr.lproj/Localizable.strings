@@ -109,7 +109,8 @@
 "«%@» no vale como nombre de carpeta en el disco." = "« %@ » ne convient pas comme nom de dossier sur le disque.";
 "«%1$@» y «%2$@» quieren el mismo sitio en el disco." = "« %1$@ » et « %2$@ » veulent la même place sur le disque.";
 "El destino de «%1$@» cae dentro del de «%2$@» sin estar dentro de ella en el Mac." = "La destination de « %1$@ » tombe dans celle de « %2$@ » sans être à l’intérieur sur le Mac.";
-"El disco no está montado o la carpeta %@ no existe." = "Le disque n’est pas monté, ou le dossier %@ n’existe pas.";
+"El disco de siempre no está montado." = "Le disque habituel n’est pas monté.";
+"El disco %@ no está montado." = "%@ n’est pas monté.";
 "Ese no es el disco de siempre: se esperaba %1$@ y hay %2$@. No se ha tocado nada." = "Ce n’est pas le disque habituel : %1$@ était attendu et c’est %2$@. Rien n’a été touché.";
 "No cabe: hacen falta %1$@ y quedan %2$@ libres." = "Ça ne tient pas : il faut %1$@ et il reste %2$@ de libre.";
 "El disco se ha desconectado a mitad de la copia." = "Le disque a été débranché au milieu de la copie.";
