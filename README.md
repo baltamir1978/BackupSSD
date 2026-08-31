@@ -122,7 +122,7 @@ Backup SSD las detecta y, antes de copiar, las pone al día:
 - Si se ha pasado del intervalo elegido, ejecuta la app y espera a que termine.
   Después empieza la copia.
 
-En **Ajustes → Antes de copiar**, cada app tiene su modo —*Actualizar*,
+En **Ajustes → Apps**, cada app tiene su modo —*Actualizar*,
 *Avisar* o *No hacer nada*— y su intervalo: siempre, cada 6 o 12 horas, cada
 día, cada 3 días o cada semana. Va por disco, porque las carpetas son de cada
 disco: el SSD que no se lleva las fotos no tiene por qué ponerse a exportar la

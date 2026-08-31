@@ -27,7 +27,7 @@ struct SettingsView: View {
                 .tabItem { Label("Copia", systemImage: "arrow.triangle.2.circlepath") }
                 .tag(Pestana.copia)
             CompanerasTab(state: state)
-                .tabItem { Label("Antes de copiar", systemImage: "clock.arrow.circlepath") }
+                .tabItem { Label("Apps", systemImage: "clock.arrow.circlepath") }
                 .tag(Pestana.apps)
             ExclusionesTab(state: state)
                 .tabItem { Label("Excluir", systemImage: "nosign") }
@@ -36,7 +36,13 @@ struct SettingsView: View {
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(Pestana.general)
         }
-        .frame(width: 520, height: 470)
+        // El ancho lo manda la barra de pestañas, no el contenido: si los cinco
+        // títulos no caben de una vez, macOS esconde los que sobran detrás de
+        // un desplegable con flechas —y enseña ahí su nombre interno, «Navigation
+        // Tab Bar»—, que es de lo peor que puede pasarle a una ventana de
+        // ajustes. Al añadir o renombrar una pestaña hay que comprobar que
+        // siguen cabiendo las cinco.
+        .frame(width: 580, height: 470)
     }
 }
 

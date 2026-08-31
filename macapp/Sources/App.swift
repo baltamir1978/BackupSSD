@@ -37,7 +37,10 @@ struct BackupSSDApp: App {
             SettingsView(state: state)
                 .preferredColorScheme(state.config.appearance.colorScheme)
         }
-        .defaultSize(width: 500, height: 430)
+        // A juego con el `frame` de SettingsView: con `.contentSize` manda el
+        // contenido, pero si el tamaño inicial se queda corto la barra de
+        // pestañas se mide con él y se colapsa antes de que la ventana crezca.
+        .defaultSize(width: 580, height: 470)
         .windowResizability(.contentSize)
     }
 }
