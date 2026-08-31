@@ -297,6 +297,25 @@ test("Ensayo con el disco todavía sin la carpeta raíz") {
     check(!FileManager.default.fileExists(atPath: sb.disco.path), "la raíz sigue sin crearse")
 }
 
+test("El espacio libre se lee bien en cualquier disco montado") {
+    // La clave «ForImportantUsage» sólo la entienden APFS y HFS+: en un exFAT
+    // devuelve 0 y el motor se plantaba con un «no cabe» delante de un disco
+    // medio vacío. Se comprueba contra los discos que haya de verdad puestos,
+    // y `attributesOfFileSystem` hace de segunda opinión: sale del mismo sitio
+    // que `df` y lo entienden todos los sistemas de archivos.
+    let motor = SyncEngine()
+    let fm = FileManager.default
+    for vol in Volumes.mounted() {
+        guard let attrs = try? fm.attributesOfFileSystem(forPath: vol.url.path),
+              let segunda = (attrs[.systemFreeSize] as? NSNumber)?.int64Value,
+              segunda > 0
+        else { continue }   // un disco de sólo lectura sí está lleno de verdad
+        let libre = motor.freeSpace(at: vol.url)
+        check(libre != nil, "«\(vol.name)»: contesta al espacio libre")
+        check((libre ?? 0) > 0, "«\(vol.name)»: y no dice 0 teniendo sitio")
+    }
+}
+
 test("Lo que aparece en el disco por su cuenta se retira") {
     let sb = Sandbox("intruso")
     sb.write("mio.txt", "1")

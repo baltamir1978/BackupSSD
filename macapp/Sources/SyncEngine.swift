@@ -1244,9 +1244,27 @@ final class SyncEngine: @unchecked Sendable {
         return url.resolvingSymlinksInPath().path.contains("/Mobile Documents/")
     }
 
-    private func freeSpace(at url: URL) -> Int64? {
-        guard let v = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]) else { return nil }
-        return v.volumeAvailableCapacityForImportantUsage
+    /// Lo que queda libre en el disco, en bytes. `nil` si no hay forma de
+    /// saberlo, y entonces no se comprueba: mejor intentar la copia que negarse
+    /// por no saber.
+    ///
+    /// Se preguntan **las dos** claves y se toma la mayor, y no es rebuscar por
+    /// gusto. `volumeAvailableCapacityForImportantUsage` es la buena en el disco
+    /// de arranque, porque cuenta además lo que el sistema puede liberar si hace
+    /// falta; pero sólo la entienden APFS y HFS+. En un exFAT —lo que trae de
+    /// fábrica cualquier SSD que también quiera leerse en Windows— devuelve 0,
+    /// tan tranquila. Creérsela ahí es plantarse con un «no cabe» delante de un
+    /// disco con 1,2 TB libres. `volumeAvailableCapacity` sale del mismo sitio
+    /// que `df` y la entienden todos.
+    func freeSpace(at url: URL) -> Int64? {
+        let claves: Set<URLResourceKey> = [
+            .volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey,
+        ]
+        guard let v = try? url.resourceValues(forKeys: claves) else { return nil }
+        // Un 0 de verdad —disco lleno— pasa igual: entonces las dos dan 0 y la
+        // copia se para, que es lo que toca.
+        return [v.volumeAvailableCapacityForImportantUsage,
+                v.volumeAvailableCapacity.map(Int64.init)].compactMap { $0 }.max()
     }
 
     static func today() -> String {
