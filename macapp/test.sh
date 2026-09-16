@@ -22,7 +22,7 @@ mkdir -p tests/build
 
 echo "Compilando las pruebas…"
 swiftc \
-    -swift-version 5 \
+    -swift-version 6 \
     -o tests/build/tests \
     Sources/Companions.swift Sources/Config.swift Sources/History.swift Sources/Localization.swift Sources/SyncEngine.swift Sources/Volumes.swift tests/main.swift
 

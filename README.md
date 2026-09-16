@@ -61,7 +61,9 @@ antes y después, la copia se marca para rehacerla y se dice en el registro.
 
 ### Compilándola (recomendado)
 
-No hace falta Xcode, sólo las Command Line Tools:
+No hace falta Xcode, sólo las Command Line Tools. El código está en modo de
+lenguaje **Swift 6** con concurrencia estricta y usa `isolated deinit`, así que
+hacen falta unas con Swift 6.2 o posterior (probado con Xcode 27 / Swift 6.4):
 
 ```sh
 git clone https://github.com/baltamir1978/BackupSSD.git

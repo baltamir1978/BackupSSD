@@ -10,6 +10,7 @@
 // escribir el primer byte, y da un progreso que significa algo.
 
 import Foundation
+import os
 
 // MARK: - Qué se ha hecho
 
@@ -253,7 +254,7 @@ private final class MoveTally: @unchecked Sendable {
 /// `@unchecked Sendable` porque el motor cruza de hilo a propósito: corre en
 /// una cola de fondo mientras la interfaz, desde la principal, puede llamar a
 /// `cancel()`. Lo único que se toca desde los dos lados es la bandera de
-/// cancelación, y esa va bajo `NSLock`. Los dos closures se asignan antes de
+/// cancelación, y esa va bajo cerrojo. Los dos closures se asignan antes de
 /// arrancar y no se vuelven a tocar.
 final class SyncEngine: @unchecked Sendable {
     /// Marcas de tiempo: se consideran iguales si no se separan más de dos
@@ -263,25 +264,23 @@ final class SyncEngine: @unchecked Sendable {
     /// sincronización recopiaría el disco entero.
     static let mtimeTolerance: TimeInterval = 2
 
-    private let lock = NSLock()
-    private var _cancelled = false
+    private let cancelled = OSAllocatedUnfairLock(initialState: false)
     var isCancelled: Bool {
-        lock.lock(); defer { lock.unlock() }
-        return _cancelled
+        cancelled.withLock { $0 }
     }
     func cancel() {
-        lock.lock(); _cancelled = true; lock.unlock()
+        cancelled.withLock { $0 = true }
     }
     func reset() {
-        lock.lock(); _cancelled = false; lock.unlock()
+        cancelled.withLock { $0 = false }
     }
 
     private let fm = FileManager.default
 
     /// Se avisa del progreso desde la cola en la que corre el motor, no desde
     /// la principal: quien lo reciba se encarga de saltar a la suya.
-    var onProgress: ((_ done: Int, _ total: Int, _ current: String) -> Void)?
-    var onLog: ((String) -> Void)?
+    var onProgress: (@Sendable (_ done: Int, _ total: Int, _ current: String) -> Void)?
+    var onLog: (@Sendable (String) -> Void)?
 
     // MARK: Ejecución
 
@@ -343,16 +342,14 @@ final class SyncEngine: @unchecked Sendable {
                 // aparatos distintos, y mientras uno contesta el otro está
                 // parado. Es la mitad del tiempo de la pasada en la que no
                 // cambia nada, que es la que se hace casi siempre.
-                var lados: [Int: ScanResult] = [:]
-                let cerrojo = NSLock()
+                let lados = OSAllocatedUnfairLock(initialState: [Int: ScanResult]())
                 DispatchQueue.concurrentPerform(iterations: hayDestino ? 2 : 1) { i in
                     let r = i == 0
                         ? self.scan(origen, matcher: matcher, cloudKeys: mirarNube, skip: saltar)
                         : self.scan(dest, matcher: matcher, cloudKeys: false, skip: saltar)
-                    cerrojo.lock(); lados[i] = r; cerrojo.unlock()
+                    lados.withLock { $0[i] = r }
                 }
-                let src = lados[0] ?? ScanResult()
-                let dst = lados[1] ?? ScanResult()
+                let (src, dst) = lados.withLock { ($0[0] ?? ScanResult(), $0[1] ?? ScanResult()) }
                 report.errors += src.errors + dst.errors
                 report.skipped += src.skipped
 
@@ -508,26 +505,28 @@ final class SyncEngine: @unchecked Sendable {
                                   report: inout SyncReport) throws {
         guard !acciones.isEmpty else { return }
 
-        let cerrojo = NSLock()
-        var siguiente = 0
-        var hechos = done
-        var errores: [String] = []
-        var desaparecidos: [String] = []
-        var cambiados: [String] = []
-        var copiados = 0, actualizados = 0
-        var bytes: Int64 = 0
-        var desconectado = false
-        // Se apunta aquí y no en el informe directamente porque esto lo
-        // rellenan cuatro hilos a la vez y en el orden que les toque.
-        var cambios: [SyncReport.Change] = []
+        struct Cuentas {
+            var siguiente = 0
+            var hechos: Int
+            var errores: [String] = []
+            var desaparecidos: [String] = []
+            var cambiados: [String] = []
+            var copiados = 0, actualizados = 0
+            var bytes: Int64 = 0
+            var desconectado = false
+            // Se apunta aquí y no en el informe directamente porque esto lo
+            // rellenan cuatro hilos a la vez y en el orden que les toque.
+            var cambios: [SyncReport.Change] = []
+        }
+        let cerrojo = OSAllocatedUnfairLock(initialState: Cuentas(hechos: done))
 
         let hilos = min(Self.concurrentCopies, acciones.count)
         DispatchQueue.concurrentPerform(iterations: hilos) { _ in
             while true {
-                cerrojo.lock()
-                let i = siguiente
-                siguiente += 1
-                cerrojo.unlock()
+                let (i, desconectado) = cerrojo.withLock { c in
+                    defer { c.siguiente += 1 }
+                    return (c.siguiente, c.desconectado)
+                }
                 guard i < acciones.count, !self.isCancelled, !desconectado else { return }
 
                 var falloAlCopiar: String? = nil
@@ -577,46 +576,47 @@ final class SyncEngine: @unchecked Sendable {
                     continue      // no llegan aquí
                 }
 
-                cerrojo.lock()
-                hechos += 1
-                if let e = falloAlCopiar { errores.append(e) }
-                if let v = seFue { desaparecidos.append(v) }
-                if let c = cambióAlVuelo { cambiados.append(c) }
-                bytes += bytesDeEste
-                if let nuevo = esNuevo {
-                    if nuevo { copiados += 1 } else { actualizados += 1 }
-                    cambios.append(SyncReport.Change(kind: nuevo ? .new : .updated,
-                                                     path: "\(folderName)/\(rel)", bytes: bytesDeEste))
-                } else if falloAlCopiar == nil, seFue == nil, !rel.isEmpty {
-                    // Un enlace simbólico recreado: no tiene tamaño, pero es
-                    // algo que aparece en el disco y hay que poder verlo.
-                    cambios.append(SyncReport.Change(kind: .new, path: "\(folderName)/\(rel)"))
+                let cuenta = cerrojo.withLock { [falloAlCopiar, seFue, cambióAlVuelo, bytesDeEste, esNuevo, rel] c in
+                    c.hechos += 1
+                    if let e = falloAlCopiar { c.errores.append(e) }
+                    if let v = seFue { c.desaparecidos.append(v) }
+                    if let v = cambióAlVuelo { c.cambiados.append(v) }
+                    c.bytes += bytesDeEste
+                    if let nuevo = esNuevo {
+                        if nuevo { c.copiados += 1 } else { c.actualizados += 1 }
+                        c.cambios.append(SyncReport.Change(kind: nuevo ? .new : .updated,
+                                                           path: "\(folderName)/\(rel)", bytes: bytesDeEste))
+                    } else if falloAlCopiar == nil, seFue == nil, !rel.isEmpty {
+                        // Un enlace simbólico recreado: no tiene tamaño, pero es
+                        // algo que aparece en el disco y hay que poder verlo.
+                        c.cambios.append(SyncReport.Change(kind: .new, path: "\(folderName)/\(rel)"))
+                    }
+                    return c.hechos
                 }
-                let cuenta = hechos
-                cerrojo.unlock()
 
                 // El disco puede irse en cualquier momento. Mirarlo cada 50
                 // evita cientos de errores idénticos, y sobre todo evita
                 // seguir escribiendo contra una carpeta que ya no está.
                 if cuenta % 50 == 0, !self.fm.fileExists(atPath: root.path) {
-                    cerrojo.lock(); desconectado = true; cerrojo.unlock()
+                    cerrojo.withLock { $0.desconectado = true }
                     return
                 }
                 self.onProgress?(cuenta, total, rel)
             }
         }
 
-        done = hechos
+        let c = cerrojo.withLock { $0 }
+        done = c.hechos
         // Ordenadas: cuatro hilos las han ido dejando según acababan, y en el
         // registro se leen mucho mejor como se ve el árbol de carpetas.
-        report.note(cambios.sorted { $0.path < $1.path })
-        report.errors += errores
-        report.vanished += desaparecidos
-        report.changed += cambiados
-        report.bytesWritten += bytes
-        report.copied += copiados
-        report.updated += actualizados
-        if desconectado { throw SyncError.disconnected }
+        report.note(c.cambios.sorted { $0.path < $1.path })
+        report.errors += c.errores
+        report.vanished += c.desaparecidos
+        report.changed += c.cambiados
+        report.bytesWritten += c.bytes
+        report.copied += c.copiados
+        report.updated += c.actualizados
+        if c.desconectado { throw SyncError.disconnected }
     }
 
     /// Lleva al disco lo que hay en el Mac y lo borra de allí, repartido entre
@@ -638,16 +638,15 @@ final class SyncEngine: @unchecked Sendable {
         guard !acciones.isEmpty else { return }
 
         let cuentas = MoveTally(hechos: done)
-        var siguiente = 0
-        let reparto = NSLock()
+        let reparto = OSAllocatedUnfairLock(initialState: 0)
 
         let hilos = min(Self.concurrentCopies, acciones.count)
         DispatchQueue.concurrentPerform(iterations: hilos) { _ in
             while true {
-                reparto.lock()
-                let i = siguiente
-                siguiente += 1
-                reparto.unlock()
+                let i = reparto.withLock { siguiente in
+                    defer { siguiente += 1 }
+                    return siguiente
+                }
                 guard i < acciones.count, !self.isCancelled, !cuentas.get(\.desconectado) else { return }
                 guard case .move(let rel, let size, let mtime, let esEnlace) = acciones[i] else { continue }
 

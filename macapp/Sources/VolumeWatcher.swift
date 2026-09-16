@@ -8,6 +8,7 @@ import Foundation
 /// Se escucha a `NSWorkspace` y no se pregunta cada pocos segundos: el sondeo
 /// gastaría batería para no enterarse de nada el 99 % del tiempo, y llegaría
 /// tarde cuando por fin pasara algo.
+@MainActor
 final class VolumeWatcher {
     /// Se ha montado un disco (ya con su UUID leído).
     var onMount: ((VolumeInfo) -> Void)?
@@ -25,7 +26,9 @@ final class VolumeWatcher {
             forName: NSWorkspace.didMountNotification, object: nil, queue: .main
         ) { [weak self] note in
             guard let url = note.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL else { return }
-            self?.announceMount(url)
+            // `queue: .main`: llega en el hilo principal, pero el tipo del
+            // closure no lo dice.
+            MainActor.assumeIsolated { self?.announceMount(url) }
         })
 
         // `willUnmount` y no `didUnmount`: hay que parar de escribir *antes* de
@@ -34,7 +37,7 @@ final class VolumeWatcher {
         for name in [NSWorkspace.willUnmountNotification, NSWorkspace.didUnmountNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 guard let url = note.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL else { return }
-                self?.onUnmount?(url)
+                MainActor.assumeIsolated { self?.onUnmount?(url) }
             })
         }
     }
@@ -44,7 +47,7 @@ final class VolumeWatcher {
         observers.removeAll()
     }
 
-    deinit { stop() }
+    isolated deinit { stop() }
 
     /// Los discos que ya estaban puestos al arrancar la app.
     ///

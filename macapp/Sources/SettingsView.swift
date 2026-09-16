@@ -93,6 +93,7 @@ private struct SinDiscos: View {
 }
 
 /// Un enlace de ida y vuelta al disco elegido, para poder editarlo con `$`.
+@MainActor
 private func enlace(_ state: AppState, _ id: UUID) -> Binding<DiskProfile> {
     Binding(
         get: { state.config[id] ?? DiskProfile() },

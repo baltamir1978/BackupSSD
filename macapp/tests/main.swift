@@ -12,11 +12,13 @@ import Foundation
 var pasadas = 0
 var fallos: [String] = []
 
+@MainActor
 func check(_ cond: Bool, _ what: String) {
     if cond { pasadas += 1; print("  ✓ \(what)") }
     else { fallos.append(what); print("  ✗ \(what)") }
 }
 
+@MainActor
 func checkEq<T: Equatable>(_ a: T, _ b: T, _ what: String) {
     if a == b { pasadas += 1; print("  ✓ \(what)") }
     else { fallos.append("\(what) — esperaba \(b), llegó \(a)"); print("  ✗ \(what) — esperaba \(b), llegó \(a)") }
@@ -25,6 +27,7 @@ func checkEq<T: Equatable>(_ a: T, _ b: T, _ what: String) {
 let fm = FileManager.default
 
 /// Una zona de pruebas nueva por test, que se borra al terminar.
+@MainActor
 final class Sandbox {
     let root: URL
     var origen: URL { root.appendingPathComponent("origen") }
@@ -36,7 +39,7 @@ final class Sandbox {
         try? fm.createDirectory(at: origen, withIntermediateDirectories: true)
         try? fm.createDirectory(at: disco, withIntermediateDirectories: true)
     }
-    deinit { try? fm.removeItem(at: root) }
+    isolated deinit { try? fm.removeItem(at: root) }
 
     @discardableResult
     func write(_ rel: String, _ texto: String, in base: URL? = nil) -> URL {
@@ -72,6 +75,7 @@ final class Sandbox {
     }
 }
 
+@MainActor
 func run(_ sb: Sandbox, _ cfg: DiskProfile, dryRun: Bool = false) -> SyncReport {
     let motor = SyncEngine()
     do { return try motor.run(config: cfg, root: sb.disco, dryRun: dryRun) }
@@ -80,6 +84,7 @@ func run(_ sb: Sandbox, _ cfg: DiskProfile, dryRun: Bool = false) -> SyncReport 
 
 let hoy = SyncEngine.today()
 
+@MainActor
 func test(_ nombre: String, _ cuerpo: () -> Void) {
     print("\n▸ \(nombre)")
     cuerpo()
@@ -495,7 +500,7 @@ test("Un archivo que desaparece mientras se copia no cuenta como error") {
 
     let motor = SyncEngine()
     DispatchQueue.global().asyncAfter(deadline: .now() + 0.02) {
-        try? fm.removeItem(at: efimero)
+        try? FileManager.default.removeItem(at: efimero)
     }
     let r = (try? motor.run(config: sb.config(), root: sb.disco)) ?? SyncReport()
 
@@ -537,17 +542,20 @@ test("Una carpeta que ya no existe se avisa, no revienta") {
 // MARK: - Mover
 
 /// Si esa ruta del Mac existe y es una carpeta.
+@MainActor
 func esCarpetaEnElMac(_ sb: Sandbox, _ rel: String) -> Bool {
     var dir: ObjCBool = false
     let hay = fm.fileExists(atPath: sb.origen.appendingPathComponent(rel).path, isDirectory: &dir)
     return hay && dir.boolValue
 }
 
+@MainActor
 func hayEnElMac(_ sb: Sandbox, _ rel: String) -> Bool {
     fm.fileExists(atPath: sb.origen.appendingPathComponent(rel).path)
 }
 
 /// Un disco con una sola carpeta, en modo mover, que se lleva todo el origen.
+@MainActor
 func configMover(_ sb: Sandbox) -> DiskProfile {
     var c = sb.config()
     c.folders = [SyncFolder(source: sb.origen.path, name: "datos", mode: .move)]

@@ -150,6 +150,7 @@ extension AppState {
 /// Hace falta el paso por `NSApp`: una app con política `.accessory` puede
 /// abrir ventanas, pero se quedan detrás de lo que hubiera delante, y quien
 /// pulsa «Ajustes» se queda mirando la pantalla sin ver nada.
+@MainActor
 enum WindowOpener {
     static func activate() {
         NSApp.setActivationPolicy(.regular)

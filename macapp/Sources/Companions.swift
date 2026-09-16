@@ -22,6 +22,7 @@
 
 import AppKit
 import Foundation
+import os
 
 // MARK: - Quién es cada una
 
@@ -288,21 +289,22 @@ struct CompanionRunResult {
 /// espera de verdad al final del trabajo, se lee lo que va diciendo y se
 /// puede parar. Y sigue siendo **la app** la que corre, con su firma y sus
 /// permisos, que es de lo que depende que pueda leer la fototeca.
-final class CompanionJob {
-    private let lock = NSLock()
-    private var proceso: Process?
-    private var cancelado = false
+final class CompanionJob: Sendable {
+    private struct Estado {
+        var proceso: Process?
+        var cancelado = false
+    }
+    private let estado = OSAllocatedUnfairLock(initialState: Estado())
 
     var isCancelled: Bool {
-        lock.lock(); defer { lock.unlock() }
-        return cancelado
+        estado.withLock { $0.cancelado }
     }
 
     func cancel() {
-        lock.lock()
-        cancelado = true
-        let p = proceso
-        lock.unlock()
+        let p = estado.withLock { e in
+            e.cancelado = true
+            return e.proceso
+        }
         // `terminate` es un SIGTERM: la app compañera se entera y deja de
         // enlazar. Lo ya enlazado se queda, que es inofensivo —son hard links
         // a archivos que siguen en su sitio— y la próxima pasada lo dará por
@@ -312,7 +314,7 @@ final class CompanionJob {
 
     /// Ejecuta y bloquea hasta que acabe. **No llamar desde el hilo
     /// principal.**
-    func run(_ c: Companion, app: URL, onLines: @escaping ([String]) -> Void) -> CompanionRunResult {
+    func run(_ c: Companion, app: URL, onLines: @escaping @Sendable ([String]) -> Void) -> CompanionRunResult {
         let binario = app.appendingPathComponent("Contents/MacOS/\(c.executable)")
         guard FileManager.default.isExecutableFile(atPath: binario.path) else {
             return CompanionRunResult(
@@ -328,10 +330,11 @@ final class CompanionJob {
         proc.standardOutput = tubo
         proc.standardError = tubo
 
-        lock.lock()
-        if cancelado { lock.unlock(); return CompanionRunResult(ok: false, message: L("Detenido.")) }
-        proceso = proc
-        lock.unlock()
+        let yaParado = estado.withLock { e in
+            if !e.cancelado { e.proceso = proc }
+            return e.cancelado
+        }
+        if yaParado { return CompanionRunResult(ok: false, message: L("Detenido.")) }
 
         // Lo que va diciendo. Va en una clase con su cerrojo porque lo escribe
         // el hilo que lee el tubo y lo lee éste al terminar.
@@ -367,7 +370,10 @@ final class CompanionJob {
         // que interesa.
         Thread.sleep(forTimeInterval: 0.15)
 
-        lock.lock(); proceso = nil; let parado = cancelado; lock.unlock()
+        let parado = estado.withLock { e in
+            e.proceso = nil
+            return e.cancelado
+        }
 
         let lineas = salida.all
         if parado {
@@ -388,17 +394,15 @@ final class CompanionJob {
 
 /// Las líneas que va escribiendo la app compañera, a salvo de que las escriba
 /// un hilo y las lea otro.
-private final class LineasLeidas {
-    private let lock = NSLock()
-    private var lineas: [String] = []
+private final class LineasLeidas: Sendable {
+    private let lineas = OSAllocatedUnfairLock(initialState: [String]())
 
     func add(_ l: String) {
-        lock.lock(); lineas.append(l); lock.unlock()
+        lineas.withLock { $0.append(l) }
     }
 
     var all: [String] {
-        lock.lock(); defer { lock.unlock() }
-        return lineas
+        lineas.withLock { $0 }
     }
 }
 
@@ -414,8 +418,8 @@ private final class LineasLeidas {
 /// app puede tardar minutos en recorrer su biblioteca.
 func actualizarCompaneras(disk: DiskProfile,
                           job: CompanionJob,
-                          onStatus: @escaping (Companion) -> Void,
-                          onLog: @escaping ([String]) -> Void) -> Bool {
+                          onStatus: @escaping @Sendable (Companion) -> Void,
+                          onLog: @escaping @Sendable ([String]) -> Void) -> Bool {
     for c in Companion.all {
         if job.isCancelled { return false }
 

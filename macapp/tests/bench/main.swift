@@ -19,6 +19,7 @@ let root = URL(fileURLWithPath: NSTemporaryDirectory())
 let origen = root.appendingPathComponent("origen")
 let disco = root.appendingPathComponent("disco")
 
+@MainActor
 func crearArbol() {
     // 50 archivos por carpeta y tres niveles de hondura: se parece más a una
     // carpeta de proyectos de verdad que 20.000 archivos en fila.
@@ -47,17 +48,20 @@ func crearArbol() {
     }
 }
 
-func config() -> Config {
-    var c = Config()
+@MainActor
+func config() -> DiskProfile {
+    var c = DiskProfile()
     c.volumeUUID = "banco-de-pruebas"
     c.folders = [SyncFolder(source: origen.path, name: "datos")]
     return c
 }
 
+@MainActor
 func rellenar(_ s: String, _ n: Int) -> String {
     s.count >= n ? s : s + String(repeating: " ", count: n - s.count)
 }
 
+@MainActor
 @discardableResult
 func cronometrar(_ nombre: String, _ cuerpo: () -> SyncReport) -> TimeInterval {
     let t0 = Date()
@@ -71,7 +75,8 @@ func cronometrar(_ nombre: String, _ cuerpo: () -> SyncReport) -> TimeInterval {
     return dt
 }
 
-func correr(_ cfg: Config) -> SyncReport {
+@MainActor
+func correr(_ cfg: DiskProfile) -> SyncReport {
     let motor = SyncEngine()
     return (try? motor.run(config: cfg, root: disco)) ?? SyncReport()
 }

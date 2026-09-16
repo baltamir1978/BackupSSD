@@ -15,10 +15,10 @@ mkdir -p tests/build
 
 echo "Compilando…"
 swiftc \
-    -swift-version 5 \
+    -swift-version 6 \
     -O \
     -o tests/build/bench \
-    Sources/Config.swift Sources/Localization.swift Sources/SyncEngine.swift Sources/Volumes.swift tests/bench/main.swift
+    Sources/Companions.swift Sources/Config.swift Sources/Localization.swift Sources/SyncEngine.swift Sources/Volumes.swift tests/bench/main.swift
 
 echo
 ./tests/build/bench "${1:-20000}"

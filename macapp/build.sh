@@ -47,7 +47,7 @@ echo "Compilando…"
 # Una sola llamada con todos los archivos: sin módulos ni enlazado por partes,
 # que para ocho archivos sobra y sólo añade cosas que se pueden romper.
 swiftc \
-    -swift-version 5 \
+    -swift-version 6 \
     -parse-as-library \
     -O \
     -target "arm64-apple-macos$MIN_MACOS" \
