@@ -538,6 +538,7 @@ final class AppState: ObservableObject {
         case .updated: return "~"      // estaba, y ha cambiado
         case .moved:   return "→"      // se ha llevado al disco y borrado del Mac
         case .retired: return "←"      // ya no está en el Mac; se aparta
+        case .recased: return "Aa"     // se llama igual salvo las mayúsculas; se renombra
         }
     }
 

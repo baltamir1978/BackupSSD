@@ -18,7 +18,7 @@ struct SyncReport {
     /// Qué le ha pasado a un archivo. Es lo que se cuenta en el registro:
     /// los números del resumen dicen *cuántos*, y esto dice *cuáles*.
     struct Change {
-        enum Kind { case new, updated, moved, retired }
+        enum Kind { case new, updated, moved, retired, recased }
         var kind: Kind
         /// Ruta desde la raíz del backup: «Documents/informe.pdf».
         var path: String
@@ -139,6 +139,9 @@ private enum Action {
     /// Llevar al disco y borrar del Mac. Sólo en carpetas en modo mover, y
     /// sólo después de comprobar que lo que llegó al disco es lo que salió.
     case move(rel: String, size: Int64, mtime: Date, isSymlink: Bool)
+    /// Cambiarle las mayúsculas al nombre de algo que ya está en el disco,
+    /// porque en el Mac se llama igual salvo por ellas. Ver `cuadrarMayusculas`.
+    case recase(from: String, to: String)
 }
 
 // MARK: - Las cuentas de un movimiento
@@ -353,13 +356,21 @@ final class SyncEngine: @unchecked Sendable {
                 report.errors += src.errors + dst.errors
                 report.skipped += src.skipped
 
-                actions = makePlan(source: src.entries, destination: dst.entries, report: &report)
+                // El exFAT del disco, como el APFS del Mac, no distingue
+                // mayúsculas. Si no se sabe, se supone que no: tratar como uno
+                // solo lo que en un disco que sí las distingue serían dos
+                // archivos sólo cuesta una copia; lo contrario, perder uno.
+                let sinMayusculas = hayDestino
+                    && (try? dest.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey]))?
+                        .volumeSupportsCaseSensitiveNames != true
+                actions = makePlan(source: src.entries, destination: dst.entries,
+                                   caseInsensitive: sinMayusculas, report: &report)
             }
 
             for a in actions {
                 switch a {
                 case .copy(_, let size, _, _), .move(_, let size, _, _): bytesNeeded += size
-                case .makeDir, .link, .retire: break
+                case .makeDir, .link, .retire, .recase: break
                 }
             }
             totalActions += actions.count
@@ -391,6 +402,8 @@ final class SyncEngine: @unchecked Sendable {
                     case .retire(let rel, _):
                         report.retired += 1
                         report.note(.retired, "\(folder.name)/\(rel)")
+                    case .recase(_, let to):
+                        report.note(.recased, "\(folder.name)/\(to)")
                     case .makeDir, .link: break
                     }
                 }
@@ -414,15 +427,34 @@ final class SyncEngine: @unchecked Sendable {
             // porque mover una carpeta mientras otro hilo mueve algo de
             // dentro es pedir un lío.
             var carpetas: [Action] = [], copias: [Action] = [], retiradas: [Action] = []
-            var movimientos: [Action] = []
+            var movimientos: [Action] = [], renombres: [Action] = []
             for a in actions {
                 switch a {
+                case .recase:         renombres.append(a)
                 case .makeDir:        carpetas.append(a)
                 case .copy, .link:    copias.append(a)
                 case .move:           movimientos.append(a)
                 case .retire:         retiradas.append(a)
                 }
             }
+
+            // Los renombres antes que nada: el resto del plan ya cuenta con
+            // que lo del disco se llama como en el Mac. Si uno falla, lo que
+            // venga después sigue siendo seguro: la copia cae encima del mismo
+            // archivo, que el disco no distingue, y nada lo retira.
+            for case .recase(let from, let to) in renombres {
+                if isCancelled { break }
+                let origenDisco = dest.appendingPathComponent(from)
+                do {
+                    desbloquear(origenDisco)
+                    try fm.moveItem(at: origenDisco, to: dest.appendingPathComponent(to))
+                    report.note(.recased, "\(folder.name)/\(to)")
+                } catch {
+                    report.errors.append(L("No se pudo renombrar %1$@: %2$@",
+                                           "\(folder.name)/\(from)", error.localizedDescription))
+                }
+            }
+            done += renombres.count
 
             for case .makeDir(let rel) in carpetas {
                 if isCancelled { break }
@@ -572,7 +604,7 @@ final class SyncEngine: @unchecked Sendable {
                     } catch {
                         falloAlCopiar = L("Enlace %1$@: %2$@", r, error.localizedDescription)
                     }
-                case .makeDir, .retire, .move:
+                case .makeDir, .retire, .move, .recase:
                     continue      // no llegan aquí
                 }
 
@@ -960,7 +992,14 @@ final class SyncEngine: @unchecked Sendable {
     /// y calcularla dentro obligaba a partir la ruta en trocitos otras tantas
     /// —unas 300.000 veces para 20.000 archivos, para averiguar 20.000 datos.
     private func makePlan(source: [String: Entry], destination: [String: Entry],
+                          caseInsensitive: Bool = false,
                           report: inout SyncReport) -> [Action] {
+        var destination = destination
+        var renombres: [Action] = []
+        if caseInsensitive {
+            (destination, renombres) = cuadrarMayusculas(source: source, destination: destination)
+        }
+
         var carpetas: [(profundidad: Int, rel: String)] = []
         var copias: [(rel: String, accion: Action)] = []
 
@@ -1006,9 +1045,58 @@ final class SyncEngine: @unchecked Sendable {
         copias.sort { $0.rel < $1.rel }           // orden estable = registro legible
         sobras.sort { $0.profundidad > $1.profundidad }
 
-        return carpetas.map { Action.makeDir(rel: $0.rel) }
+        return renombres
+            + carpetas.map { Action.makeDir(rel: $0.rel) }
             + copias.map(\.accion)
             + sobras.map(\.accion)
+    }
+
+    /// Lo que en el disco se llama como en el Mac salvo por las mayúsculas.
+    ///
+    /// Para el disco, «bruno.html» y «Bruno.html» son el mismo archivo; para
+    /// la comparación, que va por el texto de la ruta, eran dos: uno nuevo que
+    /// copiar y otro que ya no estaba en el Mac. La copia caía encima del
+    /// archivo que ya había, y al retirar el viejo se retiraba justo esa
+    /// copia: el archivo desaparecía del backup hasta la pasada siguiente. Con
+    /// una carpeta era peor, porque le pasaba a todo lo que llevaba dentro.
+    ///
+    /// Aquí se emparejan, se apunta un renombre para dejar en el disco el
+    /// nombre del Mac y el resto del plan se hace como si ya se llamaran igual.
+    /// Así un archivo que no ha cambiado no se copia y nada se retira.
+    ///
+    /// Sólo se renombra lo que cambia en su propio nombre. Si cambia una
+    /// carpeta, lo de dentro lo sigue al renombrarla; los renombres se ordenan
+    /// de menos hondo a más hondo para que cada uno encuentre ya a su padre con
+    /// el nombre nuevo.
+    private func cuadrarMayusculas(source: [String: Entry], destination: [String: Entry])
+        -> (destination: [String: Entry], renombres: [Action]) {
+        // Si en el Mac hay dos que sólo se distinguen por las mayúsculas —en
+        // un disco que sí las distingue, por ejemplo—, no se adivina cuál es
+        // cuál: se dejan como estaban.
+        var delMac: [String: String] = [:]
+        var dudosas = Set<String>()
+        for rel in source.keys {
+            let clave = rel.lowercased()
+            if delMac[clave] != nil { dudosas.insert(clave) } else { delMac[clave] = rel }
+        }
+
+        var cuadrado = destination
+        var renombres: [(profundidad: Int, accion: Action)] = []
+        for (rel, d) in destination where source[rel] == nil {
+            let clave = rel.lowercased()
+            guard !dudosas.contains(clave), let suya = delMac[clave], destination[suya] == nil else { continue }
+            cuadrado[rel] = nil
+            cuadrado[suya] = Entry(rel: suya, isDir: d.isDir, isSymlink: d.isSymlink,
+                                   size: d.size, mtime: d.mtime, linkTarget: d.linkTarget)
+
+            let nombreDisco = (rel as NSString).lastPathComponent
+            guard nombreDisco != (suya as NSString).lastPathComponent else { continue }
+            let padre = (suya as NSString).deletingLastPathComponent
+            let desde = padre.isEmpty ? nombreDisco : padre + "/" + nombreDisco
+            renombres.append((depth(of: suya), .recase(from: desde, to: suya)))
+        }
+        renombres.sort { $0.profundidad < $1.profundidad }
+        return (cuadrado, renombres.map(\.accion))
     }
 
     /// El plan de una carpeta en modo mover: todo lo que hay en el Mac se
@@ -1055,6 +1143,7 @@ final class SyncEngine: @unchecked Sendable {
         case .makeDir(let r):    return r
         case .link(let r):       return r
         case .retire(let r, _):  return r
+        case .recase(_, let r):  return r
         }
     }
 

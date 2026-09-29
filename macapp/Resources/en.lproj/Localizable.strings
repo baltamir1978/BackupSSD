@@ -112,6 +112,7 @@
 "El origen %1$@ está dentro del destino %2$@." = "The source %1$@ is inside the destination %2$@.";
 "No se pudo leer %1$@: %2$@" = "Could not read %1$@: %2$@";
 "No se pudo crear %1$@: %2$@" = "Could not create %1$@: %2$@";
+"No se pudo renombrar %1$@: %2$@" = "Could not rename %1$@: %2$@";
 "No se pudo abrir %@." = "Could not open %@.";
 "No se pudo escribir %@." = "Could not write %@.";
 "No se pudo expulsar %1$@: %2$@" = "Could not eject %1$@: %2$@";

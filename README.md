@@ -57,6 +57,14 @@ archivo mientras se copia, lo que va al disco es medio viejo y medio nuevo. No
 hay forma de evitarlo, pero sí de detectarlo: se compara la fecha y el tamaño
 antes y después, la copia se marca para rehacerla y se dice en el registro.
 
+**Cambiar sólo las mayúsculas de un nombre no saca nada del backup.** El exFAT
+del disco, como el APFS del Mac, no las distingue: para él `bruno.html` y
+`Bruno.html` son el mismo archivo. Comparados como texto eran dos, uno nuevo y
+otro que ya no estaba, y al retirar el «viejo» se retiraba la copia que se
+acababa de hacer. Ahora se emparejan, se renombra en el disco lo que haga falta
+(`Aa` en el registro) y no se copia ni se aparta nada. Con una carpeta, lo de
+dentro va con ella. En un disco que sí distingue mayúsculas no se hace.
+
 ## Instalar
 
 ### Compilándola (recomendado)

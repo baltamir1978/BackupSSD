@@ -1188,6 +1188,57 @@ test("Las reglas de las apps sobreviven al viaje por el archivo") {
             "y sus discos salen con la regla de fábrica")
 }
 
+test("Cambia sólo la mayúscula de un archivo: se renombra, no se copia ni se retira") {
+    // El disco, como el Mac, no distingue mayúsculas: «bruno.html» y
+    // «Bruno.html» son el mismo archivo para él. Antes se copiaba el nuevo
+    // encima y luego se retiraba el viejo, que era esa misma copia, y el
+    // archivo faltaba en el backup hasta la pasada siguiente.
+    let sb = Sandbox("mayusculas")
+    let mac = sb.write("bruno.html", "gastos")
+    _ = run(sb, sb.config())
+
+    try? fm.moveItem(at: mac, to: sb.origen.appendingPathComponent("Bruno.html"))
+    let ensayo = run(sb, sb.config(), dryRun: true)
+    checkEq(ensayo.changes.map(\.kind), [.recased], "el ensayo avisa del renombre y de nada más")
+
+    let r = run(sb, sb.config())
+    checkEq(r.copied + r.updated, 0, "no copia nada")
+    checkEq(r.retired, 0, "no retira nada")
+    checkEq(r.changes.map(\.path), ["datos/Bruno.html"], "apunta el renombre en el registro")
+    checkEq(sb.read("datos/Bruno.html"), "gastos", "el archivo sigue en el disco")
+    let nombres = (try? fm.contentsOfDirectory(atPath: sb.disco.appendingPathComponent("datos").path)) ?? []
+    checkEq(nombres, ["Bruno.html"], "y con el nombre del Mac")
+    check(!sb.exists("_Retirados"), "no aparta nada a _Retirados")
+
+    let r2 = run(sb, sb.config())
+    checkEq(r2.changes.count, 0, "la pasada siguiente no tiene nada que hacer")
+}
+
+test("Cambia sólo la mayúscula de una carpeta: se renombra ella y lo de dentro la sigue") {
+    let sb = Sandbox("mayusculas-carpeta")
+    sb.write("Fotos/a.jpg", "a")
+    sb.write("Fotos/Viaje/b.jpg", "b")
+    _ = run(sb, sb.config())
+
+    try? fm.moveItem(at: sb.origen.appendingPathComponent("Fotos"),
+                     to: sb.origen.appendingPathComponent("fotos"))
+    try? fm.moveItem(at: sb.origen.appendingPathComponent("fotos/Viaje"),
+                     to: sb.origen.appendingPathComponent("fotos/VIAJE"))
+    sb.write("fotos/VIAJE/c.jpg", "c")
+
+    let r = run(sb, sb.config())
+    checkEq(r.copied, 1, "sólo copia el que es nuevo de verdad")
+    checkEq(r.updated, 0, "no vuelve a copiar los que ya estaban")
+    checkEq(r.retired, 0, "no retira nada")
+    checkEq(r.errors.count, 0, "sin errores")
+    let arriba = (try? fm.contentsOfDirectory(atPath: sb.disco.appendingPathComponent("datos").path)) ?? []
+    checkEq(arriba, ["fotos"], "la carpeta lleva el nombre del Mac")
+    let dentro = (try? fm.contentsOfDirectory(atPath: sb.disco.appendingPathComponent("datos/fotos").path)) ?? []
+    checkEq(Set(dentro), ["a.jpg", "VIAJE"], "y la de dentro también")
+    checkEq(sb.read("datos/fotos/VIAJE/b.jpg"), "b", "lo que había dentro sigue ahí")
+    checkEq(sb.read("datos/fotos/VIAJE/c.jpg"), "c", "y lo nuevo ha llegado")
+}
+
 // MARK: - Resultado
 
 print("\n" + String(repeating: "─", count: 60))
